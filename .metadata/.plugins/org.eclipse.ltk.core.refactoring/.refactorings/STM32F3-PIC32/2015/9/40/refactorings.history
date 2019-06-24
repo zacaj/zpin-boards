@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring comment="Extract (*curData)" description="Extract Local Variable Refactoring" fileName="file:/C:/Users/zacaj/Documents/pic/arduPIC32/src/MySerial.h" flags="4" id="org.eclipse.cdt.internal.ui.refactoring.extractlocalvariable.ExtractLocalVariableRefactoring" name="curData" selection="6216,10" stamp="1443404017647"/>
+</session>
