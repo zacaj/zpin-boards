@@ -20,22 +20,27 @@ typedef struct {
 
     uint32_t cooldownTime; // if !0, how long it must be off before allowing another trigger (in OnOff only used after max is reached)
 
+    // Input
+    uint8_t settleTime; // how long the input must be stably off to count as off
+    
     // Triggered:
     uint8_t triggeredBy; // number of the solenoid that will trigger it
     uint32_t minOnTime;
     // maxOnTime
+    uint8_t disabled; // if set trigger is disabled until it clears
 
     // momentary:
     uint32_t onTime;
 
     // on off
-    uint32_t maxOnTime; // if !0, max time it can stay on before cooldown activtates
+    uint32_t maxOnTime; // if !0, max time it can stay on before cooldown activates
 
     uint32_t dontFireBefore; // if !0, will block activation before this time.  if -1 disabled while input is on
     uint32_t onSince; // if !0, the solenoid is on, and has been since this time
+    uint32_t lastOnAt; // for triggered, time the switch turned off last
 } Solenoid;
 
-#define SOL_DEFAULT(port, pin) { { port, pin }, Disabled, 0, -1, 0, 50, 0, 0, 0}
+#define SOL_DEFAULT(port, pin) { { port, pin }, Disabled, 0, 0, 2, -1, 0, 0, 50, 0, 0, 0, 0}
 //note v4 pins
 Solenoid solenoid[16] = {
     SOL_DEFAULT(IOPORT_B, p6),
@@ -60,6 +65,8 @@ Solenoid solenoid[16] = {
 
 
 uint32_t turnOffSolenoid(Solenoid *s) {
+    if (!s->onSince) return 0;
+    
     switch(s->mode) {
         case Input:
         case Disabled:
@@ -70,7 +77,7 @@ uint32_t turnOffSolenoid(Solenoid *s) {
             }
             break;
         case Triggered:
-            if (s->cooldownTime && s->cooldownTime != -1) {
+            if (s->cooldownTime) {
                 s->dontFireBefore = msElapsed + s->cooldownTime;
             }
             if(s->minOnTime && s->onSince && msElapsed-s->onSince < s->minOnTime) {
@@ -131,6 +138,10 @@ uint32_t fireSolenoid(Solenoid *s, uint32_t onTime) {
 }
 
 void initSolenoid(Solenoid *s) {
+    s->onSince = 0;
+    s->dontFireBefore = 0;
+    s->disabled = 0;
+    s->lastOnAt = 0;
     switch(s->mode) {
         case Input:
             initIn(s->pin);
@@ -207,6 +218,9 @@ uint8_t commandReceived(uint8_t* cmd, uint8_t len) {
                     Mode mode = (cmd[0]&0xF0)>>4;
                     switch (mode) {
                         case Disabled:
+                            break;
+                            LEN(6);
+                            s->settleTime = cmd[5];
                         case Input:
                             break;
                         case Triggered:
@@ -264,9 +278,17 @@ void loop() {
         Solenoid* s = &solenoid[i];
         switch(s->mode) {
             case Disabled:
-            case Input:
             case Momentary:
                 break;
+            case Input: {
+                uint8_t input = getIn(s->pin);
+                if (input) {
+                }
+                else {
+                    
+                }
+                break;
+            }
             case OnOff:
                 if (s->onSince) {
                     if (s->maxOnTime && msElapsed-s->onSince > s->maxOnTime) {
@@ -280,22 +302,22 @@ void loop() {
                 Solenoid* trigger = &solenoid[s->triggeredBy];
                 uint8_t input = getIn(trigger->pin);
                 if (!input) {
-                    if (s->cooldownTime == -1)
-                        s->cooldownTime = 0;
+                    if (msElapsed > s->lastOnAt + trigger->settleTime) {
+                        s->disabled = 0;
+                    }
                     turnOffSolenoid(s);
                 }
                 else {
                     if (s->onSince) { // already on
                         if (s->maxOnTime && msElapsed - s->onSince > s->maxOnTime) {
                             turnOffSolenoid(s);
-                            if (!s->cooldownTime) {
-                                s->cooldownTime = -1;
-                            }
+                            s->disabled = 1;
                         }
                     }
-                    else if (s->cooldownTime != -1) {
+                    else if (!s->disabled && msElapsed > s->lastOnAt + trigger->settleTime) {
                         turnOnSolenoid(s);
                     }
+                    s->lastOnAt = msElapsed;
                 }
                 break;
             }
@@ -310,10 +332,12 @@ void init() {
     
     solenoid[0].mode = Triggered;
     solenoid[0].minOnTime = 100;
-    solenoid[0].maxOnTime = 3000;
+    solenoid[0].maxOnTime = 100;
     solenoid[0].triggeredBy = 15;
+    solenoid[0].cooldownTime = 10;
 
     solenoid[15].mode = Input;
+    solenoid[15].settleTime = 5;
 
     for(int i=0; i<16; i++) {
         initSolenoid(&solenoid[i]);
