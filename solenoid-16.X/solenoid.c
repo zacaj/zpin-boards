@@ -40,7 +40,7 @@ typedef struct {
     uint32_t lastOnAt; // for triggered, time the switch turned off last
 } Solenoid;
 
-#define SOL_DEFAULT(port, pin) { { port, pin }, Disabled, 0, 0, 2, -1, 0, 0, 50, 0, 0, 0, 0}
+#define SOL_DEFAULT(port, pin) { { port, pin }, Disabled, 0, 0, 1, -1, 0, 0, 50, 0, 0, 0, 0}
 //note v4 pins
 Solenoid solenoid[16] = {
     SOL_DEFAULT(IOPORT_B, p6),
@@ -66,7 +66,7 @@ Solenoid solenoid[16] = {
 
 uint32_t turnOffSolenoid(Solenoid *s) {
     if (!s->onSince) return 0;
-    
+
     switch(s->mode) {
         case Input:
         case Disabled:
@@ -128,9 +128,9 @@ uint32_t fireSolenoid(Solenoid *s, uint32_t onTime) {
     // only momentary
     if (!onTime)
         onTime = s->onTime;
-    
+
     turnOnSolenoid(s);
-    
+
     if(!callIn(turnOffSolenoid, s, onTime)) {
         setOut(s->pin, OFF);
     }
@@ -169,12 +169,11 @@ uint8_t commandReceived(uint8_t* cmd, uint8_t len) {
             break;
         }
         case Ob(11111110): { //identify
-            uint8_t out[2];
             out[0]=0;
-            out[0] |= (0)<<4;
-            out[0] |= (2)<<0;
-            out[1] = 1;
-            send(out, 2);
+            out[0] |= (0)<<4; // board revision
+            out[0] |= (5)<<0; // board type id
+            out[1] = 1; // api revision
+            return 2;
             break;
         }
         default: {
@@ -185,7 +184,7 @@ uint8_t commandReceived(uint8_t* cmd, uint8_t len) {
                     break;
                 }
                 case Ob(0001): { //fire custom
-                    LEN(4);
+                    LEN(2);
                     uint8_t n = cmd[0]&0xF;
                     uint32_t on = cmd[1];
                     Solenoid *s = &solenoid[n];
@@ -215,27 +214,28 @@ uint8_t commandReceived(uint8_t* cmd, uint8_t len) {
                 case Ob(0110): { //conf
                     uint8_t n = cmd[0]&0xF;
                     Solenoid *s = &solenoid[n];
-                    Mode mode = (cmd[0]&0xF0)>>4;
+                    Mode mode = (cmd[1]);
                     switch (mode) {
                         case Disabled:
-                            break;
                             LEN(6);
-                            s->settleTime = cmd[5];
+                            break;
                         case Input:
+                            LEN(7);
+                            s->settleTime = cmd[6];
                             break;
                         case Triggered:
-                            LEN(14);
-                            s->triggeredBy = cmd[5];
-                            s->minOnTime = read32(7);
-                            s->maxOnTime = read32(8);
+                            LEN(15);
+                            s->triggeredBy = cmd[6];
+                            s->minOnTime = read32(8);
+                            s->maxOnTime = read32(9);
                             break;
                         case Momentary:
-                            LEN(9);
-                            s->onTime = read32(5);
+                            LEN(10);
+                            s->onTime = read32(6);
                             break;
                         case OnOff:
-                            LEN(9);
-                            s->maxOnTime = read32(5);
+                            LEN(10);
+                            s->maxOnTime = read32(6);
                             break;
                     }
                     s->mode = mode;
@@ -247,13 +247,15 @@ uint8_t commandReceived(uint8_t* cmd, uint8_t len) {
             break;
         }
     }
+    return 0;
 }
 uint32_t last=0;
 
 uint8_t state=0;
+uint32_t I = 0;
 void loop() {
     uint32_t ms = msElapsed+1;
-    if(msElapsed-last>5000) {
+    if(msElapsed-last>250) {
         last = msElapsed;
 
         /*if(state) {
@@ -272,8 +274,14 @@ void loop() {
         //fireSolenoid(&solenoid[0]);
 
         state=!state;
+
+        fireSolenoid(&solenoid[I], 0);
+
+        I++;
+        if (I >= 16) I = 0;
+
     }
-    
+
     for (int i=0; i<16; i++) {
         Solenoid* s = &solenoid[i];
         switch(s->mode) {
@@ -285,7 +293,7 @@ void loop() {
                 if (input) {
                 }
                 else {
-                    
+
                 }
                 break;
             }
@@ -300,7 +308,7 @@ void loop() {
                 if (s->triggeredBy >= 16)
                     break;
                 Solenoid* trigger = &solenoid[s->triggeredBy];
-                uint8_t input = getIn(trigger->pin);
+                uint8_t input = getIn(trigger->pin) ^ trigger->inverted;
                 if (!input) {
                     if (msElapsed > s->lastOnAt + trigger->settleTime) {
                         s->disabled = 0;
@@ -321,7 +329,7 @@ void loop() {
                 }
                 break;
             }
-                
+
         }
     }
 
@@ -329,20 +337,41 @@ void loop() {
 
 void init() {
     CNPDB=0;
-    
-    solenoid[0].mode = Triggered;
+
+    /*solenoid[0].mode = Triggered;
     solenoid[0].minOnTime = 100;
     solenoid[0].maxOnTime = 100;
     solenoid[0].triggeredBy = 15;
     solenoid[0].cooldownTime = 10;
 
     solenoid[15].mode = Input;
-    solenoid[15].settleTime = 5;
+    solenoid[15].settleTime = 5;/**/
+
+    for(int i=0; i<16; i++) {
+        solenoid[i].mode = Momentary;
+        solenoid[i].onTime = 50;
+    }
+    
+    solenoid[0].mode = OnOff;
+
+    solenoid[14].mode = Triggered;
+    solenoid[14].minOnTime = 0;
+    solenoid[14].triggeredBy = 15;
+    solenoid[15].mode = Input;
+
+    solenoid[12].mode = Triggered;
+    solenoid[12].minOnTime = 75;
+    solenoid[12].maxOnTime = 75;
+    solenoid[12].triggeredBy = 13;
+    solenoid[13].mode = Input;
+    solenoid[13].settleTime = 10;
+
 
     for(int i=0; i<16; i++) {
         initSolenoid(&solenoid[i]);
     }
 
+    //turnOnSolenoid(&solenoid[0]);
 }
 
 void crashed() {
