@@ -1,0 +1,8 @@
+19:30:14 **** Incremental Build of configuration Default for project STM32F3-PIC32 ****
+make all 
+arm-none-eabi-size --format=berkeley pinball.elf
+   text	   data	    bss	    dec	    hex	filename
+  79524	   2272	    616	  82412	  141ec	pinball.elf
+
+19:30:15 Build Finished (took 127ms)
+

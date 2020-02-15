@@ -1,0 +1,172 @@
+18:43:22 **** Incremental Build of configuration Default for project arduPIC32 ****
+make all 
+b2h prog.hex src/hex.h HEX
+converted prog.hex
+echo src/hex.h
+src/hex.h
+arm-none-eabi-gcc -mthumb -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -DSTM32F3XX -DUSE_STDPERIPH_DRIVER -D__FPU_PRESENT -DSDOUND -ILibraries/STM32F30x_StdPeriph_Driver/inc/  -ILibraries/CMSIS/Include  -ILibraries/CMSIS/Device/ST/STM32F30x/Include    -ggdb -Wall -ffunction-sections -fdata-sections -funroll-loops -O0 -c -o src/system_stm32f30x.o src/system_stm32f30x.c
+echo src/system_stm32f30x.o
+src/system_stm32f30x.o
+arm-none-eabi-gcc -mthumb -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -DSTM32F3XX -DUSE_STDPERIPH_DRIVER -D__FPU_PRESENT -DSDOUND -ILibraries/STM32F30x_StdPeriph_Driver/inc/  -ILibraries/CMSIS/Include  -ILibraries/CMSIS/Device/ST/STM32F30x/Include    -ggdb -Wall -ffunction-sections -fdata-sections -funroll-loops -O0 -c -o src/newlib_stubs.o src/newlib_stubs.c
+In file included from Libraries/STM32F30x_StdPeriph_Driver/inc/stm32f30x_usart.h:38:0,
+                 from src/newlib_stubs.c:7:
+Libraries/CMSIS/Device/ST/STM32F30x/Include/stm32f30x.h:55:0: warning: "NULL" redefined [enabled by default]
+ #define NULL   ((void *) 0)
+ ^
+In file included from d:\root\arm-none-eabi\arm-none-eabi\include\sys\unistd.h:13:0,
+                 from src/newlib_stubs.c:4:
+d:\root\arm-none-eabi\lib\gcc\arm-none-eabi\4.8.4\include\stddef.h:402:0: note: this is the location of the previous definition
+ #define NULL ((void *)0)
+ ^
+echo src/newlib_stubs.o
+src/newlib_stubs.o
+arm-none-eabi-gcc -mthumb -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -DSTM32F3XX -DUSE_STDPERIPH_DRIVER -D__FPU_PRESENT -DSDOUND -ILibraries/STM32F30x_StdPeriph_Driver/inc/  -ILibraries/CMSIS/Include  -ILibraries/CMSIS/Device/ST/STM32F30x/Include    -ggdb -Wall -ffunction-sections -fdata-sections -funroll-loops -O0 -c -o src/stm32f3_discovery.o src/stm32f3_discovery.c
+echo src/stm32f3_discovery.o
+src/stm32f3_discovery.o
+arm-none-eabi-gcc -mthumb -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -DSTM32F3XX -DUSE_STDPERIPH_DRIVER -D__FPU_PRESENT -DSDOUND -ILibraries/STM32F30x_StdPeriph_Driver/inc/  -ILibraries/CMSIS/Include  -ILibraries/CMSIS/Device/ST/STM32F30x/Include    -ggdb -Wall -ffunction-sections -fdata-sections -funroll-loops -O0 -c -o src/common.o src/common.c
+echo src/common.o
+src/common.o
+arm-none-eabi-g++ -mthumb -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -DSTM32F3XX -DUSE_STDPERIPH_DRIVER -D__FPU_PRESENT -DSDOUND -ILibraries/STM32F30x_StdPeriph_Driver/inc/  -ILibraries/CMSIS/Include  -ILibraries/CMSIS/Device/ST/STM32F30x/Include    -ggdb -Wall -ffunction-sections -fdata-sections -funroll-loops -O0 -c -o src/main.o src/main.cpp
+In file included from src/main.cpp:47:0:
+src/Pic32JTAG.h: In member function 'void Pic32JTAG::XferInstruction(uint32_t)':
+src/Pic32JTAG.h:252:31: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+       SendCommand(ETAP_CONTROL);
+                               ^
+src/Pic32JTAG.h:262:28: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+       SendCommand(ETAP_DATA);
+                            ^
+src/Pic32JTAG.h:264:31: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+       SendCommand(ETAP_CONTROL);
+                               ^
+In file included from src/main.cpp:48:0:
+src/Pic32JTAGDevice.h: In member function 'uint32_t Pic32JTAGDevice::CheckStatus()':
+src/Pic32JTAGDevice.h:122:33: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+         SendCommand(MTAP_SW_MTAP);
+                                 ^
+src/Pic32JTAGDevice.h:123:33: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+         SendCommand(MTAP_COMMAND);
+                                 ^
+src/Pic32JTAGDevice.h:124:41: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+         MyStatus_ = XferData(MCHP_STATUS);
+                                         ^
+src/Pic32JTAGDevice.h:130:45: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+             MyStatus_ = XferData(MCHP_STATUS);
+                                             ^
+src/Pic32JTAGDevice.h:132:5: warning: no return statement in function returning non-void [-Wreturn-type]
+     }
+     ^
+src/Pic32JTAGDevice.h: In member function 'void Pic32JTAGDevice::JTAGErase()':
+src/Pic32JTAGDevice.h:145:37: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+             SendCommand(MTAP_SW_MTAP);
+                                     ^
+src/Pic32JTAGDevice.h:146:37: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+             SendCommand(MTAP_COMMAND);
+                                     ^
+src/Pic32JTAGDevice.h:147:32: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+             XferData(MCHP_ERASE);
+                                ^
+src/Pic32JTAGDevice.h:149:45: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+             MyStatus_ = XferData(MCHP_STATUS);
+                                             ^
+src/Pic32JTAGDevice.h:155:49: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+                 MyStatus_ = XferData(MCHP_STATUS);
+                                                 ^
+src/Pic32JTAGDevice.h:141:17: warning: unused variable 'ind' [-Wunused-variable]
+         uint8_t ind = 0;
+                 ^
+src/Pic32JTAGDevice.h: In member function 'void Pic32JTAGDevice::EnterPgmMode()':
+src/Pic32JTAGDevice.h:165:33: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+         SendCommand(MTAP_SW_ETAP);
+                                 ^
+src/Pic32JTAGDevice.h:166:35: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+         SendCommand(ETAP_EJTAGBOOT);
+                                   ^
+src/Pic32JTAGDevice.h: In member function 'uint32_t Pic32JTAGDevice::ReadIDCodeRegister()':
+src/Pic32JTAGDevice.h:184:32: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+         SendCommand(MTAP_IDCODE);
+                                ^
+src/Pic32JTAGDevice.h:185:41: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+         DeviceID_ = XferData(DATA_IDCODE);
+                                         ^
+src/Pic32JTAGDevice.h: In member function 'uint32_t Pic32JTAGDevice::FlashOperation(unsigned char, uint32_t, unsigned int)':
+src/Pic32JTAGDevice.h:325:36: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+         SendCommand( ETAP_FASTDATA );
+                                    ^
+src/Pic32JTAGDevice.h: In member function 'uint32_t Pic32JTAGDevice::ReadFlashData(uint32_t)':
+src/Pic32JTAGDevice.h:351:36: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+         SendCommand( ETAP_FASTDATA );
+                                    ^
+In file included from src/main.cpp:49:0:
+src/MySerial.h: In function 'char RXChar()':
+src/MySerial.h:42:13: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+  error("eol");
+             ^
+src/MySerial.h: In function 'unsigned char Ascii2Hex(unsigned char)':
+src/MySerial.h:63:27: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+      error("invalid ascii");
+                           ^
+src/MySerial.h: In function 'void HexPgm(Pic32JTAGDevice, bool, bool)':
+src/MySerial.h:158:33: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+          error("start code fail");
+                                 ^
+src/MySerial.h:220:51: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+                              error("verify failed");
+                                                   ^
+src/MySerial.h:253:35: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+              error("hexfile error");
+                                   ^
+src/MySerial.h:264:31: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+          error("checksum fail");
+                               ^
+src/MySerial.h:134:14: warning: unused variable 'Status' [-Wunused-variable]
+     uint16_t Status;
+              ^
+src/MySerial.h:135:14: warning: unused variable 'phase' [-Wunused-variable]
+     uint16_t phase = 0;
+              ^
+src/main.cpp: In function 'int main()':
+src/main.cpp:74:50: warning: comparison between signed and unsigned integer expressions [-Wsign-compare]
+   if(buttonState!=STM_EVAL_PBGetState(BUTTON_USER))
+                                                  ^
+src/main.cpp:83:14: warning: extended initializer lists only available with -std=c++11 or -std=gnu++11 [enabled by default]
+  setOutDirect({bU,P0},0);
+              ^
+src/main.cpp:91:10: warning: unused variable 'name' [-Wunused-variable]
+    char *name=pic32.GetDeviceName();
+          ^
+src/main.cpp:92:8: warning: unused variable 'needsErase' [-Wunused-variable]
+    int needsErase = pic32.NeedsErase();
+        ^
+src/main.cpp:93:13: warning: unused variable 'id' [-Wunused-variable]
+    uint32_t id=pic32.GetDeviceID();
+             ^
+src/main.cpp:94:8: warning: unused variable 'rowSize' [-Wunused-variable]
+    int rowSize=pic32.GetRowSize();
+        ^
+src/main.cpp:95:8: warning: unused variable 'pageSize' [-Wunused-variable]
+    int pageSize=pic32.GetPageSize();
+        ^
+src/main.cpp:104:33: warning: deprecated conversion from string constant to 'char*' [-Wwrite-strings]
+     error("need to erase first!");
+                                 ^
+src/main.cpp:88:8: warning: unused variable 'exit' [-Wunused-variable]
+   bool exit = false;
+        ^
+echo src/main.o
+src/main.o
+arm-none-eabi-g++ -mthumb -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -DSTM32F3XX -DUSE_STDPERIPH_DRIVER -D__FPU_PRESENT -DSDOUND -ILibraries/STM32F30x_StdPeriph_Driver/inc/  -ILibraries/CMSIS/Include  -ILibraries/CMSIS/Device/ST/STM32F30x/Include    -ggdb -Wall -ffunction-sections -fdata-sections -funroll-loops -O0 -c -o src/io.o src/io.cpp
+echo src/io.o
+src/io.o
+src/startup_stm32f30x.o
+arm-none-eabi-gcc Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_gpio.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_spi.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_adc.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_iwdg.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_tim.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_misc.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_rtc.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_usart.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_syscfg.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_flash.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_rcc.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_crc.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_i2c.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_pwr.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_can.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_dac.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_dbgmcu.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_dma.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_exti.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_wwdg.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_opamp.o Libraries/STM32F30x_StdPeriph_Driver/src/stm32f30x_comp.o src/system_stm32f30x.o src/newlib_stubs.o src/stm32f3_discovery.o src/common.o src/main.o src/io.o src/startup_stm32f30x.o -mthumb -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard -g -gdwarf-2  -Tstm32f30_flash.ld  -Xlinker --gc-sections -Wl,-Map=pinball.map  -lm -lc  -o pinball.elf
+echo pinball.elf
+pinball.elf
+arm-none-eabi-objcopy -O binary pinball.elf pinball.bin
+echo pinball.bin
+pinball.bin
+arm-none-eabi-size --format=berkeley pinball.elf
+   text	   data	    bss	    dec	    hex	filename
+  49720	   2272	    620	  52612	   cd84	pinball.elf
+
+18:43:24 Build Finished (took 2s.702ms)
+
