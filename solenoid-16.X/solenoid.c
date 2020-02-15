@@ -18,11 +18,13 @@ typedef struct {
     Pin pin;
     Mode mode;
 
+    uint8_t pulseOffTime; // if !0, once maxOnTime is reached coil will PWM, 1ms on, this amount off, instead of disabling
     uint32_t cooldownTime; // if !0, how long it must be off before allowing another trigger (in OnOff only used after max is reached)
 
     // Input
     uint8_t settleTime; // how long the input must be stably off to count as off
-    
+    uint8_t inverted; // default yes
+
     // Triggered:
     uint8_t triggeredBy; // number of the solenoid that will trigger it
     uint32_t minOnTime;
@@ -40,7 +42,7 @@ typedef struct {
     uint32_t lastOnAt; // for triggered, time the switch turned off last
 } Solenoid;
 
-#define SOL_DEFAULT(port, pin) { { port, pin }, Disabled, 0, 0, 1, -1, 0, 0, 50, 0, 0, 0, 0}
+#define SOL_DEFAULT(port, pin) { { port, pin }, Disabled, 0, 0, 0, 1, -1, 0, 0, 50, 0, 0, 0, 0}
 //note v4 pins
 Solenoid solenoid[16] = {
     SOL_DEFAULT(IOPORT_B, p6),
@@ -318,8 +320,17 @@ void loop() {
                 else {
                     if (s->onSince) { // already on
                         if (s->maxOnTime && msElapsed - s->onSince > s->maxOnTime) {
-                            turnOffSolenoid(s);
-                            s->disabled = 1;
+                            if (s->pulseOffTime) { // pwm
+                                uint32_t t = msElapsed - s->onSince - s->maxOnTime;
+                                if (t % (s->pulseOffTime + 1) == 0)
+                                   setOut(s->pin, ON);
+                                else
+                                    setOut(s->pin, OFF);    
+                            }
+                            else {
+                                turnOffSolenoid(s);
+                                s->disabled = 1;
+                            }
                         }
                     }
                     else if (!s->disabled && msElapsed > s->lastOnAt + trigger->settleTime) {
