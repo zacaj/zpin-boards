@@ -22,21 +22,30 @@ void loop();
 
 void init();
 
-void send(uint8_t* data, uint8_t len) {
-    SpiChnPutC(1, 0xFF);
-    SpiChnGetC(1);
-    SpiChnPutC(1, prefix);
-    SpiChnGetC(1);
-    SpiChnPutC(1, len);
-    SpiChnGetC(1);
+uint32_t recStart = 0, recLast = 0;
+
+uint8_t sendByte(uint8_t data) {
+    SpiChnPutC(1, data);
+    while(!SpiChnDataRdy(1)) {
+        if ((recStart && msElapsed - recStart > 200) || (recLast && msElapsed - recLast > 200)) {
+            return 0;
+        }
+    }
+    while(SpiChnDataRdy(1)) SpiChnGetC(1);
+    return 1;
+}
+
+uint8_t send(uint8_t* data, uint8_t len) {
+    if (!sendByte(0xFF)) return 0;
+    if (!sendByte(prefix)) return 0;
+    if (!sendByte(len)) return 0;
     uint8_t checksum = 0;
     for(int i=0; i<len; i++) {
-        SpiChnPutC(1, data[i]);
-        SpiChnGetC(1);
+        if (!sendByte(data[i])) return 0;
         checksum += data[i];
     }
-    SpiChnPutC(1, checksum);
-    SpiChnGetC(1);
+    if (len && !sendByte(checksum)) return 0;
+    return 1;
 }
 
 int main(void)
@@ -57,6 +66,8 @@ int main(void)
 #endif
 
     SpiChnOpen(1, SPI_OPEN_MODE8|SPI_OPEN_SLVEN|SPI_OPEN_SSEN
+            
+            |SPI_OPEN_ENHBUF
 #ifdef NO_SDO
             |SPI_OPEN_DISSDO
 #endif
@@ -70,32 +81,43 @@ int main(void)
     uint8_t checksum = 0;
     uint8_t theirSum = 0;
     uint8_t toRead = 0;
-    uint32_t recStart = 0;
     uint8_t respSize = 0;
     while(1) {
         if(SpiChnTxBuffEmpty(1))
-            SpiChnPutC(1, lastByteReceived);
+            SpiChnPutC(1, 'e');
         lastByteReceived = 0;
         
-        if (recStart && msElapsed - recStart > 10) {
+        if (SpiChnGetRov(1, 0)) {
+            i = 0;
+        }
+        
+        if (i && ((recStart && msElapsed - recStart > 200) || (recLast && msElapsed - recLast > 20))) {
             //timeout
+            
             i = 0;
             recStart = 0;
-            toRead = 0;
+            recLast = 0;
         }
 
-        while(!SpiChnDataRdy(1)) {
+        if(!SpiChnDataRdy(1)) {
+            if (i) continue;
             loop();
 
-            setOut(led, msElapsed % 200 < 100);
+            setOut(led, msElapsed % 200 < 100 && !i);
+            continue;
         }
+        // got data
+        recLast = msElapsed;
+        
+        setOut(led, 0);
         uint8_t byte = SpiChnGetC(1);
         if (i == 0) { // command start
             recStart = msElapsed;
             if (byte != 'S') {
                 i = 0;
                 recStart = 0;
-                toRead = 0;
+                recLast = 0;
+                continue;
             }
             i++;
         }
@@ -116,19 +138,29 @@ int main(void)
         else { // done
             if (byte == 'E') {
                 if (checksum == theirSum) {
-                    respSize = commandReceived(cmd, i);
                     prefix = 'R';
+                    respSize = commandReceived(cmd, toRead);
                 }
                 else {
                     prefix = 'C';
                     respSize = 0;
                 }
-                send(out, respSize + 1);
+                uint32_t now = msElapsed;
+                
+                uint8_t success = send(out, respSize);
+                
+                if (!success) {
+                    setOut(led, 1);
+                    while(msElapsed - now < 1000);
+                }
+                i = 0;
+                recStart = 0;
+                recLast = 0;
             }
             else {
                 i = 0;
                 recStart = 0;
-                toRead = 0;
+                recLast = 0;
             }
         }
     }

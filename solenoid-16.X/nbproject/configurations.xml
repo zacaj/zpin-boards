@@ -300,8 +300,8 @@
         <property key="TIMER4" value="true"/>
         <property key="TIMER5" value="true"/>
         <property key="ToolFirmwareFilePath"
-                  value="Press to browse for a specific firmware version"/>
-        <property key="ToolFirmwareOption.UseLatestFirmware" value="true"/>
+                  value="C:\Program Files (x86)/Microchip/MPLABX/v5.30/mplab_platform/mplablibs/modules/ext/PICKIT3.jar/PK3FW_015602.jam"/>
+        <property key="ToolFirmwareOption.UseLatestFirmware" value="false"/>
         <property key="UART1" value="true"/>
         <property key="UART2" value="true"/>
         <property key="USB" value="true"/>

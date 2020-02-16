@@ -161,7 +161,6 @@ void initSolenoid(Solenoid *s) {
 
 uint8_t commandReceived(uint8_t* cmd, uint8_t len) {
     switch(cmd[0]) {
-        case 0:
         case 255:
             break;
         case Ob(11111100): { //clear bookkeeping
@@ -241,7 +240,7 @@ uint8_t commandReceived(uint8_t* cmd, uint8_t len) {
                             break;
                     }
                     s->mode = mode;
-                    s->cooldownTime = read32(1);
+                    s->cooldownTime = read32(2);
                     initSolenoid(s);
                     break;
                 }
@@ -257,6 +256,7 @@ uint8_t state=0;
 uint32_t I = 0;
 void loop() {
     uint32_t ms = msElapsed+1;
+#if 0
     if(msElapsed-last>250) {
         last = msElapsed;
 
@@ -283,6 +283,7 @@ void loop() {
         if (I >= 16) I = 0;
 
     }
+#endif
 
     for (int i=0; i<16; i++) {
         Solenoid* s = &solenoid[i];
@@ -348,7 +349,9 @@ void loop() {
 
 void init() {
     CNPDB=0;
-
+    for(int i=0; i<16; i++) {
+        solenoid[i].mode = Disabled;
+    }
     /*solenoid[0].mode = Triggered;
     solenoid[0].minOnTime = 100;
     solenoid[0].maxOnTime = 100;
@@ -358,7 +361,7 @@ void init() {
     solenoid[15].mode = Input;
     solenoid[15].settleTime = 5;/**/
 
-    for(int i=0; i<16; i++) {
+    /*for(int i=0; i<16; i++) {
         solenoid[i].mode = Momentary;
         solenoid[i].onTime = 50;
     }
@@ -375,7 +378,7 @@ void init() {
     solenoid[12].maxOnTime = 75;
     solenoid[12].triggeredBy = 13;
     solenoid[13].mode = Input;
-    solenoid[13].settleTime = 10;
+    solenoid[13].settleTime = 10;*/
 
 
     for(int i=0; i<16; i++) {
