@@ -22,29 +22,59 @@ void loop();
 
 void init();
 
-uint32_t recStart = 0, recLast = 0;
+uint32_t recStart = 0, recLast = 0, respStart = 0;
 
 uint8_t sendByte(uint8_t data) {
     SpiChnPutC(1, data);
     while(!SpiChnDataRdy(1)) {
-        if ((recStart && msElapsed - recStart > 200) || (recLast && msElapsed - recLast > 200)) {
+        if (respStart && msElapsed - respStart > 200) {
             return 0;
         }
     }
-    while(SpiChnDataRdy(1)) SpiChnGetC(1);
+    SpiChnGetC(1);
     return 1;
 }
 
 uint8_t send(uint8_t* data, uint8_t len) {
-    if (!sendByte(0xFF)) return 0;
-    if (!sendByte(prefix)) return 0;
-    if (!sendByte(len)) return 0;
+    respStart = msElapsed;
+    /*uint8_t out[len+3+len?1:0];
     uint8_t checksum = 0;
-    for(int i=0; i<len; i++) {
-        if (!sendByte(data[i])) return 0;
+    out[0] = 0xFE;
+    out[1] = prefix;
+    out[2] = len;
+    for(uint8_t i=0; i<len; i++) {
+        out[i+3] = data[i];
         checksum += data[i];
     }
-    if (len && !sendByte(checksum)) return 0;
+    if(len)
+        out[len+3] = checksum;
+    SpiChnPutS(1, out, len+3+len?1:0);*/
+    uint8_t checksum = 0;
+    SpiChnWriteC(1, 0xFE);
+    SpiChnWriteC(1, prefix);
+    SpiChnWriteC(1, len);
+    for(uint8_t i=0; i<len; i++) {
+        SpiChnWriteC(1, data[i]);
+        checksum += data[i];
+    }
+    if(len)
+        SpiChnWriteC(1, checksum);
+    
+    while(!SpiChnTxBuffEmpty(1)) {
+        if (respStart && msElapsed - respStart > 200) {
+            return 0;
+        }
+    }
+    
+//    if (!sendByte(0xFF)) return 0;
+//    if (!sendByte(prefix)) return 0;
+//    if (!sendByte(len)) return 0;
+//    uint8_t checksum = 0;
+//    for(int i=0; i<len; i++) {
+//        if (!sendByte(data[i])) return 0;
+//        checksum += data[i];
+//    }
+//    if (len && !sendByte(checksum)) return 0;
     return 1;
 }
 
@@ -67,7 +97,7 @@ int main(void)
 
     SpiChnOpen(1, SPI_OPEN_MODE8|SPI_OPEN_SLVEN|SPI_OPEN_SSEN
             
-            |SPI_OPEN_ENHBUF
+            |SPI_OPEN_ENHBUF|SPI_CONFIG_SMP_END|SPI_CONFIG_CKE_REV
 #ifdef NO_SDO
             |SPI_OPEN_DISSDO
 #endif
@@ -83,7 +113,7 @@ int main(void)
     uint8_t toRead = 0;
     uint8_t respSize = 0;
     while(1) {
-        if(SpiChnTxBuffEmpty(1))
+        if(SpiChnTxBuffEmpty(1) && !i)
             SpiChnPutC(1, 'e');
         lastByteReceived = 0;
         
@@ -97,6 +127,7 @@ int main(void)
             i = 0;
             recStart = 0;
             recLast = 0;
+            respStart = 0;
         }
 
         if(!SpiChnDataRdy(1)) {
@@ -156,11 +187,13 @@ int main(void)
                 i = 0;
                 recStart = 0;
                 recLast = 0;
+                respStart = 0;
             }
             else {
                 i = 0;
                 recStart = 0;
                 recLast = 0;
+                respStart = 0;
             }
         }
     }

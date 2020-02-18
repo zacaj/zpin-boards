@@ -1,0 +1,17 @@
+16 test.X/
+clang-test.X/
+disp-wms-6.X/
+disp-wms-7/
+hot-tip.X/
+hot-tip-new/
+led-14x16/
+solenoid-16.X/build/
+solenoid-16.X/dist/
+solenoid-8-5/
+solenoid-8-8/
+stock-car/
+switch-14x16/
+test1.X/
+test-mpu/
+test-sat/
+wms-lamp-8x8/
