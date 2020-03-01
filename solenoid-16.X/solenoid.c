@@ -218,29 +218,30 @@ uint8_t commandReceived(uint8_t* cmd, uint8_t len) {
                     Mode mode = (cmd[1]);
                     switch (mode) {
                         case Disabled:
-                            LEN(6);
+                            LEN(7);
                             break;
                         case Input:
-                            LEN(7);
-                            s->settleTime = cmd[6];
+                            LEN(8);
+                            s->settleTime = cmd[7];
                             break;
                         case Triggered:
-                            LEN(15);
-                            s->triggeredBy = cmd[6];
+                            LEN(16);
+                            s->triggeredBy = cmd[7];
                             s->minOnTime = read32(8);
-                            s->maxOnTime = read32(9);
+                            s->maxOnTime = read32(12);
                             break;
                         case Momentary:
-                            LEN(10);
-                            s->onTime = read32(6);
+                            LEN(11);
+                            s->onTime = read32(7);
                             break;
                         case OnOff:
-                            LEN(10);
-                            s->maxOnTime = read32(6);
+                            LEN(11);
+                            s->maxOnTime = read32(7);
                             break;
                     }
                     s->mode = mode;
                     s->cooldownTime = read32(2);
+                    s->pulseOffTime = cmd[6];
                     initSolenoid(s);
                     break;
                 }
@@ -303,7 +304,16 @@ void loop() {
             case OnOff:
                 if (s->onSince) {
                     if (s->maxOnTime && msElapsed-s->onSince > s->maxOnTime) {
-                        turnOffSolenoid(s);
+                        if (s->pulseOffTime) { // pwm
+                            uint32_t t = msElapsed - s->onSince - s->maxOnTime;
+                            if (t % (s->pulseOffTime + 1) == 0)
+                               setOut(s->pin, ON);
+                            else
+                                setOut(s->pin, OFF);    
+                        }
+                        else {
+                            turnOffSolenoid(s);
+                        }
                     }
                 }
                 break;
