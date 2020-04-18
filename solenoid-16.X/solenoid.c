@@ -11,8 +11,6 @@ typedef enum {
     Triggered = 4,
 } Mode;
 
-#define ON 0
-#define OFF 1
 
 typedef struct {
     Pin pin;
@@ -40,31 +38,64 @@ typedef struct {
     uint32_t dontFireBefore; // if !0, will block activation before this time.  if -1 disabled while input is on
     uint32_t onSince; // if !0, the solenoid is on, and has been since this time
     uint32_t lastOnAt; // for triggered, time the switch turned off last
+    uint8_t on; // whether on signal is high or low
 } Solenoid;
 
-#define SOL_DEFAULT(port, pin) { { port, pin }, Disabled, 0, 0, 0, 1, -1, 0, 0, 50, 0, 0, 0, 0}
+#define SOL_DEFAULT(port, pin, lp) { { port, pin }, Disabled, 1, 0, 0, 0, 1, -1, 0, 0, 50, 0, 0, 0, 0, lp}
+
+#define V4
+#ifdef V4
 //note v4 pins
 Solenoid solenoid[16] = {
-    SOL_DEFAULT(IOPORT_B, p6),
-    SOL_DEFAULT(IOPORT_B, p7),
-    SOL_DEFAULT(IOPORT_B, p8),
-    SOL_DEFAULT(IOPORT_B, p11), // low power + connector
-    SOL_DEFAULT(IOPORT_B, p9),
-    SOL_DEFAULT(IOPORT_B, p13),
+    SOL_DEFAULT(IOPORT_B, p6, 0),
+    SOL_DEFAULT(IOPORT_B, p7, 0),
+    SOL_DEFAULT(IOPORT_B, p8, 0),
+    SOL_DEFAULT(IOPORT_B, p11, 1), // low power + connector
+    SOL_DEFAULT(IOPORT_B, p9, 0),
+    SOL_DEFAULT(IOPORT_B, p13, 0),
 
-    SOL_DEFAULT(IOPORT_B, p0),
-    SOL_DEFAULT(IOPORT_B, p1),
-    SOL_DEFAULT(IOPORT_B, p2),
-    SOL_DEFAULT(IOPORT_B, p3), //low power
-    SOL_DEFAULT(IOPORT_A, p3),
-    SOL_DEFAULT(IOPORT_B, p4),
+    SOL_DEFAULT(IOPORT_B, p0, 0),
+    SOL_DEFAULT(IOPORT_B, p1, 0),
+    SOL_DEFAULT(IOPORT_B, p2, 0),
+    SOL_DEFAULT(IOPORT_B, p3, 1), //low power
+    SOL_DEFAULT(IOPORT_A, p3, 0),
+    SOL_DEFAULT(IOPORT_B, p4, 0),
 
-    SOL_DEFAULT(IOPORT_B, p12),
-    SOL_DEFAULT(IOPORT_B, p10), // low power + connector
-    SOL_DEFAULT(IOPORT_A, p4),
-    SOL_DEFAULT(IOPORT_B, p5), // low power
+    SOL_DEFAULT(IOPORT_B, p12, 0),
+    SOL_DEFAULT(IOPORT_B, p10, 1), // low power + connector
+    SOL_DEFAULT(IOPORT_A, p4, 0),
+    SOL_DEFAULT(IOPORT_B, p5, 1), // low power
 };
+#endif
+#ifdef V7
+//note v7 pins
+Solenoid solenoid[16] = {
+    SOL_DEFAULT(IOPORT_B, p0, 0),
+    SOL_DEFAULT(IOPORT_B, p1, 0),
+    SOL_DEFAULT(IOPORT_B, p2, 0),
+    SOL_DEFAULT(IOPORT_A, p3, 0),
+    SOL_DEFAULT(IOPORT_B, p4, 0),
+    SOL_DEFAULT(IOPORT_A, p4, 0),
 
+    SOL_DEFAULT(IOPORT_B, p6, 0),
+    SOL_DEFAULT(IOPORT_B, p7, 0),
+    SOL_DEFAULT(IOPORT_B, p8, 0),
+    SOL_DEFAULT(IOPORT_B, p9, 0),
+    SOL_DEFAULT(IOPORT_B, p13, 0),
+    SOL_DEFAULT(IOPORT_B, p12, 0),
+    
+    SOL_DEFAULT(IOPORT_B, p5, 1), // low power
+    SOL_DEFAULT(IOPORT_B, p11, 1), // low power + connector
+
+    SOL_DEFAULT(IOPORT_B, p3, 1), // low power
+    SOL_DEFAULT(IOPORT_B, p10, 1), // low power + connector
+};
+#endif
+#ifndef V7
+#ifndef V4
+#error version missing
+#endif
+#endif
 
 uint32_t turnOffSolenoid(Solenoid *s) {
     if (!s->onSince) return 0;
@@ -90,7 +121,7 @@ uint32_t turnOffSolenoid(Solenoid *s) {
             break;
     }
 
-    setOut(s->pin, OFF);
+    setOut(s->pin, !s->on);
     s->onSince = 0;
     return 0;
 }
@@ -102,11 +133,11 @@ void turnOnSolenoid(Solenoid *s) {
             break;
         case Momentary:
         case Triggered:
+            if(s->onSince) return;
         case OnOff:
             if(msElapsed < s->dontFireBefore) return;
-            if(s->onSince) return;
 
-            setOut(s->pin, ON);
+            setOut(s->pin, s->on);
             s->onSince = msElapsed;
             break;
     }
@@ -134,7 +165,7 @@ uint32_t fireSolenoid(Solenoid *s, uint32_t onTime) {
     turnOnSolenoid(s);
 
     if(!callIn(turnOffSolenoid, s, onTime)) {
-        setOut(s->pin, OFF);
+        setOut(s->pin, !s->on);
     }
     return 0;
 }
@@ -154,7 +185,7 @@ void initSolenoid(Solenoid *s) {
         case OnOff:
         case Momentary:
         case Triggered:
-            initOut(s->pin, OFF);
+            initOut(s->pin, !s->on);
             break;
     }
 }
@@ -173,7 +204,7 @@ uint8_t commandReceived(uint8_t* cmd, uint8_t len) {
             out[0]=0;
             out[0] |= (0)<<4; // board revision
             out[0] |= (5)<<0; // board type id
-            out[1] = 1; // api revision
+            out[1] = 2; // api revision
             return 2;
             break;
         }
@@ -307,9 +338,9 @@ void loop() {
                         if (s->pulseOffTime) { // pwm
                             uint32_t t = msElapsed - s->onSince - s->maxOnTime;
                             if (t % (s->pulseOffTime + 1) == 0)
-                               setOut(s->pin, ON);
+                               setOut(s->pin, s->on);
                             else
-                                setOut(s->pin, OFF);    
+                                setOut(s->pin, !s->on);    
                         }
                         else {
                             turnOffSolenoid(s);
@@ -334,9 +365,9 @@ void loop() {
                             if (s->pulseOffTime) { // pwm
                                 uint32_t t = msElapsed - s->onSince - s->maxOnTime;
                                 if (t % (s->pulseOffTime + 1) == 0)
-                                   setOut(s->pin, ON);
+                                   setOut(s->pin, s->on);
                                 else
-                                    setOut(s->pin, OFF);    
+                                    setOut(s->pin, !s->on);    
                             }
                             else {
                                 turnOffSolenoid(s);
@@ -361,7 +392,12 @@ void init() {
     CNPDB=0;
     for(int i=0; i<16; i++) {
         solenoid[i].mode = Disabled;
+        setOut(solenoid[i].pin, !solenoid[i].on);
     }
+//    for(int i=0; i<16; i++) {
+//        solenoid[i].mode = Momentary;
+//        solenoid[i].onTime = 250;
+//    }
     /*solenoid[0].mode = Triggered;
     solenoid[0].minOnTime = 100;
     solenoid[0].maxOnTime = 100;
@@ -371,10 +407,7 @@ void init() {
     solenoid[15].mode = Input;
     solenoid[15].settleTime = 5;/**/
 
-    /*for(int i=0; i<16; i++) {
-        solenoid[i].mode = Momentary;
-        solenoid[i].onTime = 50;
-    }
+    /*
     
     solenoid[0].mode = OnOff;
 
@@ -400,6 +433,7 @@ void init() {
 
 void crashed() {
     for(int i=0; i<16; i++) {
-        initIn(solenoid[i].pin);
+        solenoid[i].mode = Disabled;
+        setOut(solenoid[i].pin, !solenoid[i].on);
     }
 }
