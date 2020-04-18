@@ -216,9 +216,9 @@ uint8_t commandReceived(uint8_t* cmd, uint8_t len) {
                     break;
                 }
                 case Ob(0001): { //fire custom
-                    LEN(2);
+                    LEN(5);
                     uint8_t n = cmd[0]&0xF;
-                    uint32_t on = cmd[1];
+                    uint32_t on = read32(1);
                     Solenoid *s = &solenoid[n];
                     fireSolenoid(s, on);
                     break;
