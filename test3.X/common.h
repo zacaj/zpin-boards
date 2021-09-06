@@ -72,6 +72,7 @@ typedef enum  {
 
 #define msElapsed ((ReadCoreTimer()/20000))
 #define dmsElapsed ((ReadCoreTimer()/2000))
+#define cmsElapsed ((ReadCoreTimer()/200))
 #define usElapsed ((ReadCoreTimer()/20))
 void waitUs(uint32_t us);
 void initPic32();

@@ -15,7 +15,8 @@ typedef enum {
 typedef struct {
     Pin pin;
     Mode mode;
-
+    
+    uint8_t pulseOnTime; 
     uint8_t pulseOffTime; // if !0, once maxOnTime is reached coil will PWM, 1ms on, this amount off, instead of disabling
     uint32_t cooldownTime; // if !0, how long it must be off before allowing another trigger (in OnOff only used after max is reached)
 
@@ -43,7 +44,7 @@ typedef struct {
 
 #define SOL_DEFAULT(port, pin, lp) { { port, pin }, Disabled, 1, 0, 0, 0, 1, -1, 0, 0, 50, 0, 0, 0, 0, lp}
 
-#define V4
+#define V7
 #ifdef V4
 //note v4 pins
 Solenoid solenoid[16] = {
@@ -180,8 +181,8 @@ void initSolenoid(Solenoid *s) {
             initIn(s->pin);
             break;
         case Disabled:
-            initIn(s->pin);
-            break;
+            //initIn(s->pin);
+            //break;
         case OnOff:
         case Momentary:
         case Triggered:
@@ -266,8 +267,9 @@ uint8_t commandReceived(uint8_t* cmd, uint8_t len) {
                             s->onTime = read32(7);
                             break;
                         case OnOff:
-                            LEN(11);
-                            s->maxOnTime = read32(7);
+                            LEN(12);
+                            s->pulseOnTime = cmd[7];
+                            s->maxOnTime = read32(8);
                             break;
                     }
                     s->mode = mode;
@@ -289,7 +291,7 @@ uint32_t I = 0;
 void loop() {
     uint32_t ms = msElapsed+1;
 #if 0
-    if(msElapsed-last>250) {
+    if(msElapsed-last>150) {
         last = msElapsed;
 
         /*if(state) {
@@ -307,9 +309,11 @@ void loop() {
         }*/
         //fireSolenoid(&solenoid[0]);
 
-        state=!state;
-
-        fireSolenoid(&solenoid[I], 0);
+        //state=!state;
+//    for(int i=0; i<16; i++) {
+//        fireSolenoid(&solenoid[i], 0);
+//    }
+//        fireSolenoid(&solenoid[I], 0);
 
         I++;
         if (I >= 16) I = 0;
@@ -336,8 +340,7 @@ void loop() {
                 if (s->onSince) {
                     if (s->maxOnTime && msElapsed-s->onSince > s->maxOnTime) {
                         if (s->pulseOffTime) { // pwm
-                            uint32_t t = msElapsed - s->onSince - s->maxOnTime;
-                            if (t % (s->pulseOffTime + 1) == 0)
+                            if (dmsElapsed % (s->pulseOffTime + s->pulseOnTime) < s->pulseOnTime)
                                setOut(s->pin, s->on);
                             else
                                 setOut(s->pin, !s->on);    
@@ -348,6 +351,7 @@ void loop() {
                     }
                 }
                 break;
+#if 0
             case Triggered: {
                 if (s->triggeredBy >= 16)
                     break;
@@ -364,7 +368,7 @@ void loop() {
                         if (s->maxOnTime && msElapsed - s->onSince > s->maxOnTime) {
                             if (s->pulseOffTime) { // pwm
                                 uint32_t t = msElapsed - s->onSince - s->maxOnTime;
-                                if (t % (s->pulseOffTime + 1) == 0)
+                                if (dmsElapsed % (s->pulseOffTime + 1) == 0)
                                    setOut(s->pin, s->on);
                                 else
                                     setOut(s->pin, !s->on);    
@@ -382,7 +386,7 @@ void loop() {
                 }
                 break;
             }
-
+#endif
         }
     }
 
@@ -392,7 +396,8 @@ void init() {
     CNPDB=0;
     for(int i=0; i<16; i++) {
         solenoid[i].mode = Disabled;
-        setOut(solenoid[i].pin, !solenoid[i].on);
+        initSolenoid(&solenoid[i]);
+//        setOut(solenoid[i].pin, !solenoid[i].on);
     }
 //    for(int i=0; i<16; i++) {
 //        solenoid[i].mode = Momentary;
