@@ -1,5 +1,5 @@
-#pragma config PMDL1WAY = ON            // Peripheral Module Disable Configuration (Allow only one reconfiguration)
-#pragma config IOL1WAY = ON             // Peripheral Pin Select Configuration (Allow only one reconfiguration)
+#pragma config PMDL1WAY = OFF            // Peripheral Module Disable Configuration (Allow only one reconfiguration)
+#pragma config IOL1WAY = OFF             // Peripheral Pin Select Configuration (Allow only one reconfiguration)
 //#pragma config FUSBIDIO = ON            // USB USID Selection (Controlled by the USB Module)
 //#pragma config FVBUSONIO = ON           // USB VBUS ON Selection (Controlled by USB Module)
 
@@ -23,7 +23,7 @@
 
 // DEVCFG0
 #pragma config JTAGEN = OFF              // JTAG Enable (JTAG Port Enabled)
-#pragma config ICESEL = ICS_PGx2        // ICE/ICD Comm Channel Select (Communicate on PGEC1/PGED1)
+#pragma config ICESEL = ICS_PGx3        // ICE/ICD Comm Channel Select (Communicate on PGEC3/PGED3)
 #pragma config PWP = OFF                // Program Flash Write Protect (Disable)
 #pragma config BWP = OFF                // Boot Flash Write Protect bit (Protection Disabled)
 #pragma config CP = OFF                 // Code Protect (Protection Disabled)

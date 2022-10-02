@@ -17,10 +17,10 @@ void initPic32() {
     ANSELB = 0;
     REFOCON = 0;
 
-    PORTSetPinsDigitalOut(IOPORT_A, 31);
-    PORTClearBits(IOPORT_A, 31);
-    PORTSetPinsDigitalOut(IOPORT_B, 65535);
-    PORTClearBits(IOPORT_B, 65535);
+    PORTSetPinsDigitalIn(IOPORT_A, 31);
+//    PORTClearBits(IOPORT_A, 31);
+    PORTSetPinsDigitalIn(IOPORT_B, 65535);
+//    PORTClearBits(IOPORT_B, 65535);
 
 #ifndef NO_TIMER
     initTimers();

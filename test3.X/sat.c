@@ -23,6 +23,8 @@ void loop();
 void init();
 
 uint32_t recStart = 0, recLast = 0, respStart = 0;
+uint16_t ledSpeed = 500;
+uint16_t initHash;
 
 uint8_t sendByte(uint8_t data) {
     SpiChnPutC(1, data);
@@ -103,6 +105,7 @@ int main(void)
 #endif
             , 2);
 
+    initHash = usElapsed;
     init();
 
     uint8_t lastByteReceived = 0;
@@ -134,7 +137,7 @@ int main(void)
             if (i) continue;
             loop();
 
-            setOut(led, msElapsed % 200 < 100 && !i);
+            setOut(led, (msElapsed % ledSpeed < (ledSpeed>>1)) && !i);
             continue;
         }
         // got data

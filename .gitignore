@@ -15,3 +15,6 @@ test1.X/
 test-mpu/
 test-sat/
 wms-lamp-8x8/
+dist/
+build/
+nbproject/

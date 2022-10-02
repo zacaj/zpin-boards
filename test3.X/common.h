@@ -25,7 +25,7 @@
 #include <peripheral/spi.h>
 #include <peripheral/system.h>
 #include <peripheral/timer.h>
-//#include <peripheral/uart.h>
+#include <peripheral/uart.h>
 //#include <peripheral/wdt.h>
 //#include <peripheral/eth.h>
 //#include <peripheral/CAN.h>
@@ -55,7 +55,9 @@
 #define p1                        (1 << 1)
 #define p0                        (1 << 0)
 
-
+typedef unsigned char u8;
+typedef unsigned short u16;
+typedef unsigned int u32;
 
 
 typedef struct {
