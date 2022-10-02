@@ -50,23 +50,27 @@ int main(void)
 }
 
 #define MESSAGE_LEN 10
-char message[MESSAGE_LEN+1];
+char sendMessage[MESSAGE_LEN+1];
 char* sendAt = NULL;
+char recvMessage[MESSAGE_LEN+1];
+char* recvAt = NULL;
+#define MESSAGE_START 255
+#define MESSAGE_END 254
 
 void sendByte() {
     if (sendAt) {
-        char byte = *sendAt;
+        u8 byte = *sendAt;
         if (*sendAt == '\0' || *sendAt == '\n')
             sendAt = NULL;
         else {
             sendAt++;
-            if (sendAt >= message+MESSAGE_LEN)
+            if (sendAt >= sendMessage+MESSAGE_LEN)
                 sendAt = NULL;
         }
         INTClearFlag(INT_SOURCE_UART_TX(UART1));
         UARTSendDataByte(UART1, byte);
     }
-    else {
+    if (!sendAt) {
         INTClearFlag(INT_SOURCE_UART_TX(UART1));
         INTEnable(INT_SOURCE_UART_TX(UART1), INT_DISABLED);
     }
@@ -77,6 +81,25 @@ void __ISR(_UART_1_VECTOR, IPL2SOFT) IUart1Handler(void)
     if (INTGetFlag(INT_SOURCE_UART_TX(UART1))) {
         sendByte();
     }
+    if (INTGetFlag(INT_SOURCE_UART_RX(UART1))) {
+        u8 byte = UARTGetDataByte(UART1);
+        if (byte == MESSAGE_START)
+            recvAt = recvMessage;
+        else if (byte == MESSAGE_END) {
+            *recvAt = 0;
+            send(recvMessage);
+            recvAt = NULL;
+        }
+        else if (recvAt) {
+            *recvAt = byte;
+            recvAt++;
+            if (recvAt >= recvMessage+MESSAGE_LEN)
+                recvAt = NULL;
+        }
+        else {
+            
+        }
+    }
     INTClearFlag(INT_SOURCE_UART_TX(UART1));
     INTClearFlag(INT_SOURCE_UART_RX(UART1));
     INTClearFlag(INT_SOURCE_UART_ERROR(UART1));
@@ -84,8 +107,10 @@ void __ISR(_UART_1_VECTOR, IPL2SOFT) IUart1Handler(void)
 }
 
 void send(char* m) {
-    strcpy(message, m);
-    sendAt = message;
+    while(sendAt);
+    strcpy(sendMessage, m);
+    sendAt = sendMessage;
+    INTClearFlag(INT_SOURCE_UART_TX(UART1));
     INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
     sendByte();
 }
@@ -284,7 +309,9 @@ void init() {
   INTSetVectorPriority(INT_VECTOR_UART(UART1), INT_PRIORITY_LEVEL_2);
   INTSetVectorSubPriority(INT_VECTOR_UART(UART1), INT_SUB_PRIORITY_LEVEL_0);
 //    IEC1bits.U1TXIE = 1;
-     INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
+//     INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
+    INTClearFlag(INT_SOURCE_UART_RX(UART1));
+    INTEnable(INT_SOURCE_UART_RX(UART1), INT_ENABLED);
     
     send("hello");
 //    CNPDB=0;
@@ -339,10 +366,14 @@ uint8_t state=0;
 uint32_t I = 0;
 void loop() {
     uint32_t ms = msElapsed+1;
-    u16 in = inRead2x(A, GPIOA);
-    char msg[10];
-    sprintf(msg, "in %x", in);
-    send(msg);
+    if (U1ASTAbits.URXDA) {
+        UARTGetDataByte(UART1);
+    }
+    U1ASTAbits.OERR = 0;
+//    u16 in = inRead2x(A, GPIOA);
+//    char msg[10];
+//    sprintf(msg, "in %x", in);
+//    send(msg);
 #ifdef TEST
     if(msElapsed-last>150) {
         last = msElapsed;
