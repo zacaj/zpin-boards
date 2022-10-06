@@ -120,19 +120,21 @@ void send(char* m) {
 typedef struct {
     Pin pin;
     
-    u32 strokeLength;
-    u16 strokeOnUs;
-    u16 strokeOffUs;
+    u32 onSince; // set = firing, 0 = not firing
+    
+    u32 strokeLength; // -1 = infinite, 0 = disabled
+    u16 strokeOnDms;
+    u16 strokeOffDms; // 0 = no pwm
     
     u32 holdLength;
-    u16 holdOnUs;
-    u16 holdOffUs;
+    u16 holdOnDms;
+    u16 holdOffDms;
     
     u8 triggerSw;
     u8 repluseSw;
 } Solenoid;
 //
-#define SOL_DEFAULT(port, pin) { { port, pin }, 0, 1, 0, 0, 1, 0, -1, -1 }
+#define SOL_DEFAULT(port, pin) { { port, pin }, 0, 0, 1, 0, 0, 1, 0, -1, -1 }
 //
 #define SOL_NUM 13
 Solenoid solenoid[SOL_NUM] = {
@@ -243,9 +245,13 @@ void inWrite2xBoth(InAddr address, u8 value) {
 }
 
 void init() {
-//    for (int i=0; i<SOL_NUM; i++) {
-//        initOut(solenoid[i].pin, 0);
-//    }
+    for (int i=0; i<SOL_NUM; i++) {
+        initOut(solenoid[i].pin, 0);
+    }
+    solenoid[0].holdLength = 50;
+    solenoid[0].strokeLength = 50;
+    solenoid[0].strokeOffDms = 1;
+    solenoid[0].strokeOnDms = 2;
     
 //    initOut(sdo, 1);
 //    initOut(sck, 1);
@@ -365,11 +371,16 @@ uint32_t last=0;
 uint8_t state=0;
 uint32_t I = 0;
 void loop() {
-    uint32_t ms = msElapsed+1;
     if (U1ASTAbits.URXDA) {
         UARTGetDataByte(UART1);
     }
     U1ASTAbits.OERR = 0;
+    
+    if(msElapsed-last>150) {
+        last = msElapsed;
+        solenoid[0].onSince = msElapsed;
+    }
+    
 //    u16 in = inRead2x(A, GPIOA);
 //    char msg[10];
 //    sprintf(msg, "in %x", in);
@@ -405,8 +416,34 @@ void loop() {
     }
 #endif
 
-//    for (int i=0; i<16; i++) {
-//        Solenoid* s = &solenoid[i];
+    u32 ms = msElapsed;
+    u32 dms = dmsElapsed;
+    
+    for (int i=0; i<SOL_NUM; i++) {
+        Solenoid* s = &solenoid[i];
+        if (!s->onSince) continue;
+        if (ms - s->onSince < s->strokeLength || s->strokeLength==-1) {
+            if (s->strokeOffDms) {
+                setOut(s->pin, dms % (s->strokeOffDms + s->strokeOnDms) < s->strokeOnDms);
+            }
+            else {
+                // already on, ignore it
+                setOut(s->pin, 1);
+            }
+        }
+        else if (ms - s->onSince < s->strokeLength + s->holdLength || s->holdLength==-1) {
+            if (s->holdOffDms) {
+                setOut(s->pin, dms % (s->holdOffDms + s->holdOnDms) < s->holdOnDms);
+            }
+            else {
+                setOut(s->pin, 1);
+            }
+        }
+        else {
+            setOut(s->pin, 0);
+            s->onSince = 0;
+        }
+    }
 //        switch(s->mode) {
 //            case Disabled:
 //            case Momentary:
