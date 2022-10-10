@@ -8,6 +8,7 @@ Pin sdi = { IOPORT_B, p8 };
 Pin sck = { IOPORT_B, p14 };
 Pin inCS = { IOPORT_B, p4 };
 Pin inReset = { IOPORT_B, p5 };
+Pin inInt = { IOPORT_B, p9 };
 
 
 void loop();
@@ -76,6 +77,15 @@ void sendByte() {
     }
 }
 
+void send(char* m) {
+    while(sendAt);
+    strcpy(sendMessage, m);
+    sendAt = sendMessage;
+    INTClearFlag(INT_SOURCE_UART_TX(UART1));
+    INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
+    sendByte();
+}
+
 void __ISR(_UART_1_VECTOR, IPL2SOFT) IUart1Handler(void)
 {
     if (INTGetFlag(INT_SOURCE_UART_TX(UART1))) {
@@ -87,7 +97,7 @@ void __ISR(_UART_1_VECTOR, IPL2SOFT) IUart1Handler(void)
             recvAt = recvMessage;
         else if (byte == MESSAGE_END) {
             *recvAt = 0;
-            send(recvMessage);
+//            send(recvMessage);
             recvAt = NULL;
         }
         else if (recvAt) {
@@ -104,15 +114,6 @@ void __ISR(_UART_1_VECTOR, IPL2SOFT) IUart1Handler(void)
     INTClearFlag(INT_SOURCE_UART_RX(UART1));
     INTClearFlag(INT_SOURCE_UART_ERROR(UART1));
     INTClearFlag(INT_SOURCE_UART(UART1));
-}
-
-void send(char* m) {
-    while(sendAt);
-    strcpy(sendMessage, m);
-    sendAt = sendMessage;
-    INTClearFlag(INT_SOURCE_UART_TX(UART1));
-    INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
-    sendByte();
 }
    
 
@@ -244,14 +245,44 @@ void inWrite2xBoth(InAddr address, u8 value) {
     inWrite2x(B, address, value);
 }
 
+void checkInputs() {
+    u32 state = inRead2x(A, INTCAPA);
+//    inRead2x(A, );
+    char msg[10];
+    sprintf(msg, "in %x", state);
+//        send(msg);
+}
+
+void __ISR(_EXTERNAL_1_VECTOR, IPL2SOFT) IInInterruptHandler(void)
+{
+    if (INTGetFlag(INT_SOURCE_EX_INT(1))) {
+        checkInputs();
+//        INTEnable(INT_SOURCE_EX_INT(1), INT_ENABLED);
+    }
+    INTClearFlag(INT_SOURCE_EX_INT(1));
+}
+
 void init() {
     for (int i=0; i<SOL_NUM; i++) {
         initOut(solenoid[i].pin, 0);
+        solenoid[i].strokeLength = -1;
+        solenoid[i].strokeOffDms = 1;
+        solenoid[i].strokeOnDms = 2;
     }
     solenoid[0].holdLength = 50;
     solenoid[0].strokeLength = 50;
     solenoid[0].strokeOffDms = 1;
     solenoid[0].strokeOnDms = 2;
+    
+    
+    initIn(inInt);
+    CNPUBbits.CNPUB9 = 1; // pullup on B9
+    INTCONbits.INT1EP = 0; // interrupt on falling edge
+    INT1R = 0b0100; // B9
+    INTSetVectorPriority(INT_SOURCE_EX_INT(1), INT_PRIORITY_LEVEL_1);
+    INTSetVectorSubPriority(INT_SOURCE_EX_INT(1), INT_SUB_PRIORITY_LEVEL_0);
+    INTClearFlag(INT_SOURCE_EX_INT(1));
+    INTEnable(INT_SOURCE_EX_INT(1), INT_ENABLED);
     
 //    initOut(sdo, 1);
 //    initOut(sck, 1);
@@ -273,14 +304,18 @@ void init() {
     
     inWrite(A, IOCON, 0b01001100); // INTs tied, INT active low, seq read
 //    inWrite(A, IOCON+1, 0b01101110); // INTs tied, INT active low, seq read
-    inWrite2xBoth(IODIRA, 0x00); // 0 = output
+    inWrite2xBoth(IODIRA, 0xFF); // 0 = output
 //    inWrite4(IODIRA, 0x00); // 0 = output
     inWrite2xBoth(IPOLA, 0b00000000); // 0 = not inverted
 //    inWrite2xBoth(GPIOA, 0b11110000);
-    inWrite(A, GPIOA, 0b00111100);
-    inWrite(A, GPIOB, 0b10101100);
+//    inWrite(A, GPIOA, 0b00111100);
+//    inWrite(A, GPIOB, 0b10101100);
 //    inWrite4(OLATA, 0b01110000);
     inWrite2xBoth(GPPUA, 0b11111111); // 1 = pull up enabled
+    inWrite2xBoth(IPOLA, 0x00); // 0 = non-inverted
+    inWrite2xBoth(GPINTENA, 0xFF); // 1 = enable interrupt
+    inWrite2xBoth(INTCONA, 0x00); // 0 = interrupt on any change
+    
 //    u8 ctrl = inRead(A, IOCON);
     
     u8 ctrl= inRead(A, IOCON);
@@ -375,6 +410,10 @@ void loop() {
         UARTGetDataByte(UART1);
     }
     U1ASTAbits.OERR = 0;
+    
+    if (!getIn(inInt)) {
+        checkInputs();
+    }
     
     if(msElapsed-last>150) {
         last = msElapsed;
@@ -514,9 +553,9 @@ void loop() {
 }
 
 void crashed() {
-    for(int i=0; i<16; i++) {
-//        solenoid[i].mode = Disabled;
-//        setOut(solenoid[i].pin, !solenoid[i].on);
+    for(int i=0; i<SOL_NUM; i++) {
+        solenoid[i].onSince = 0;
+        setOut(solenoid[i].pin, 0);
     }
     ledSpeed = 2000;
 }
