@@ -16,6 +16,11 @@ void loop();
 void init();
 
 uint16_t ledSpeed = 500;
+boolean ledOn = false;
+
+void setLed() {
+    setOut(led, !ledOn & (msElapsed % ledSpeed < (ledSpeed>>1)));
+}
 
 int main(void)
 {
@@ -46,7 +51,7 @@ int main(void)
 
     while(1) {
         loop();
-        setOut(led, (msElapsed % ledSpeed < (ledSpeed>>1)));
+        setLed();
     }
 }
 
@@ -121,7 +126,7 @@ void __ISR(_UART_1_VECTOR, IPL2SOFT) IUart1Handler(void)
 typedef struct {
     Pin pin;
     
-    u32 onSince; // set = firing, 0 = not firing
+    u32 onSince; // ms.  set = firing, 0 = not firing
     
     u32 strokeLength; // -1 = infinite, 0 = disabled
     u16 strokeOnDms;
@@ -131,11 +136,11 @@ typedef struct {
     u16 holdOnDms;
     u16 holdOffDms;
     
-    u8 triggerSw;
-    u8 repluseSw;
+    u32 triggerSw; // bitfield, 1 = triggers this solenoid
+    u32 repluseSw;
 } Solenoid;
 //
-#define SOL_DEFAULT(port, pin) { { port, pin }, 0, 0, 1, 0, 0, 1, 0, -1, -1 }
+#define SOL_DEFAULT(port, pin) { { port, pin }, 0, 0, 1, 0, 0, 1, 0, 0, 0 }
 //
 #define SOL_NUM 13
 Solenoid solenoid[SOL_NUM] = {
@@ -145,10 +150,10 @@ Solenoid solenoid[SOL_NUM] = {
     SOL_DEFAULT(IOPORT_A, p4),
     SOL_DEFAULT(IOPORT_B, p13),
     SOL_DEFAULT(IOPORT_B, p10),
-    SOL_DEFAULT(IOPORT_B, p9),
+//    SOL_DEFAULT(IOPORT_B, p9), // interrupt
     SOL_DEFAULT(IOPORT_B, p5),
     SOL_DEFAULT(IOPORT_A, p3),
-//    SOL_DEFAULT(IOPORT_B, p6),
+    SOL_DEFAULT(IOPORT_B, p6),
     SOL_DEFAULT(IOPORT_B, p12),
     SOL_DEFAULT(IOPORT_B, p15),
     SOL_DEFAULT(IOPORT_A, p0),
@@ -245,18 +250,39 @@ void inWrite2xBoth(InAddr address, u8 value) {
     inWrite2x(B, address, value);
 }
 
-void checkInputs() {
-    u32 state = inRead2x(A, INTCAPA);
-//    inRead2x(A, );
+u32 inState = 0;
+
+void checkInputs(InAddr source) {
+    u32 state = 0xFFFF ^ inRead2x(A, source);
+    if (state == inState) return;
+    
+    u32 changed = inState ^ state;
+    u32 on = changed & inState;
+    
+    // trigger solenoids
+    for (int i=0; i<SOL_NUM; i++) {
+        if (solenoid[i].triggerSw & on) {
+            if (!solenoid[i].onSince) {
+                solenoid[i].onSince = msElapsed;
+                setOut(solenoid[i].pin, 1);
+            }
+        }
+    }
+    
+    inState = state;
+    
     char msg[10];
     sprintf(msg, "in %x", state);
-//        send(msg);
+    send(msg);
+    
+    if (source == source)
+        checkInputs(GPIOA);
 }
 
-void __ISR(_EXTERNAL_1_VECTOR, IPL2SOFT) IInInterruptHandler(void)
+void __attribute__((vector(_EXTERNAL_1_VECTOR), interrupt(IPL4SOFT), nomips16, no_fpu))  IInInterruptHandler(void)
 {
     if (INTGetFlag(INT_SOURCE_EX_INT(1))) {
-        checkInputs();
+        checkInputs(INTCAPA);
 //        INTEnable(INT_SOURCE_EX_INT(1), INT_ENABLED);
     }
     INTClearFlag(INT_SOURCE_EX_INT(1));
@@ -266,21 +292,23 @@ void init() {
     for (int i=0; i<SOL_NUM; i++) {
         initOut(solenoid[i].pin, 0);
         solenoid[i].strokeLength = -1;
-        solenoid[i].strokeOffDms = 1;
+        solenoid[i].strokeOffDms = 0;
         solenoid[i].strokeOnDms = 2;
     }
-    solenoid[0].holdLength = 50;
-    solenoid[0].strokeLength = 50;
-    solenoid[0].strokeOffDms = 1;
+    
+    solenoid[0].holdLength = 0;
+    solenoid[0].strokeLength = 40;
+    solenoid[0].strokeOffDms = 0;
     solenoid[0].strokeOnDms = 2;
+    solenoid[0].triggerSw = 0b1;
     
     
     initIn(inInt);
     CNPUBbits.CNPUB9 = 1; // pullup on B9
     INTCONbits.INT1EP = 0; // interrupt on falling edge
     INT1R = 0b0100; // B9
-    INTSetVectorPriority(INT_SOURCE_EX_INT(1), INT_PRIORITY_LEVEL_1);
-    INTSetVectorSubPriority(INT_SOURCE_EX_INT(1), INT_SUB_PRIORITY_LEVEL_0);
+    INTSetVectorPriority(INT_SOURCE_EX_INT(1), INT_PRIORITY_LEVEL_4);
+    INTSetVectorSubPriority(INT_SOURCE_EX_INT(1), INT_SUB_PRIORITY_LEVEL_1);
     INTClearFlag(INT_SOURCE_EX_INT(1));
     INTEnable(INT_SOURCE_EX_INT(1), INT_ENABLED);
     
@@ -340,19 +368,19 @@ void init() {
     UARTSendDataByte(UART1, 'i');
     while(!UARTTransmissionHasCompleted(UART1));
     
-    int i=0;
-    while(i<25) {
-        waitUs(10000);
-        UARTSendDataByte(UART1, 'a'+i);
-        i++;
-    }
+//    int i=0;
+//    while(i<25) {
+//        waitUs(10000);
+//        UARTSendDataByte(UART1, 'a'+i);
+//        i++;
+//    }
     
   INTSetVectorPriority(INT_VECTOR_UART(UART1), INT_PRIORITY_LEVEL_2);
-  INTSetVectorSubPriority(INT_VECTOR_UART(UART1), INT_SUB_PRIORITY_LEVEL_0);
+  INTSetVectorSubPriority(INT_VECTOR_UART(UART1), INT_SUB_PRIORITY_LEVEL_1);
 //    IEC1bits.U1TXIE = 1;
 //     INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
     INTClearFlag(INT_SOURCE_UART_RX(UART1));
-    INTEnable(INT_SOURCE_UART_RX(UART1), INT_ENABLED);
+//    INTEnable(INT_SOURCE_UART_RX(UART1), INT_ENABLED);
     
     send("hello");
 //    CNPDB=0;
@@ -412,13 +440,15 @@ void loop() {
     U1ASTAbits.OERR = 0;
     
     if (!getIn(inInt)) {
-        checkInputs();
+        checkInputs(INTCAPA);
     }
     
-    if(msElapsed-last>150) {
-        last = msElapsed;
-        solenoid[0].onSince = msElapsed;
-    }
+    ledOn = !!(inState & (1<<0));
+    
+//    if(msElapsed-last>1500) {
+//        last = msElapsed;
+//        solenoid[0].onSince = msElapsed;
+//    }
     
 //    u16 in = inRead2x(A, GPIOA);
 //    char msg[10];
@@ -468,6 +498,7 @@ void loop() {
             else {
                 // already on, ignore it
                 setOut(s->pin, 1);
+//                setOut(led, 0);
             }
         }
         else if (ms - s->onSince < s->strokeLength + s->holdLength || s->holdLength==-1) {
@@ -476,6 +507,7 @@ void loop() {
             }
             else {
                 setOut(s->pin, 1);
+//                setOut(led, 1);
             }
         }
         else {
@@ -558,4 +590,7 @@ void crashed() {
         setOut(solenoid[i].pin, 0);
     }
     ledSpeed = 2000;
+//    while (1) {
+//        setLed();
+//    }
 }
