@@ -15,11 +15,11 @@ void loop();
 
 void init();
 
-uint16_t ledSpeed = 500;
-boolean ledOn = false;
+uint16_t ledSpeed = 700;
+boolean ledInvert = false;
 
 void setLed() {
-    setOut(led, !ledOn & (msElapsed % ledSpeed < (ledSpeed>>1)));
+    setOut(led, !(ledInvert != (msElapsed % ledSpeed < (ledSpeed/6))));
 }
 
 int main(void)
@@ -130,13 +130,13 @@ typedef struct {
     
     u32 strokeLength; // -1 = infinite, 0 = disabled
     u16 strokeOnDms;
-    u16 strokeOffDms; // 0 = no pwm
+    u16 strokeOffDms; // 0 = no pwm, strokeOnDms ignored
     
     u32 holdLength;
     u16 holdOnDms;
     u16 holdOffDms;
     
-    u32 triggerSw; // bitfield, 1 = triggers this solenoid
+    u32 triggerSw; // bitfield, 1 = stroke will begin if this switch turns on, hold will end if this switch turns off
     u32 repluseSw;
 } Solenoid;
 //
@@ -257,7 +257,8 @@ void checkInputs(InAddr source) {
     if (state == inState) return;
     
     u32 changed = inState ^ state;
-    u32 on = changed & inState;
+    u32 on = changed & state;
+    u32 off = changed & (0xFFFF ^ state);
     
     // trigger solenoids
     for (int i=0; i<SOL_NUM; i++) {
@@ -267,15 +268,22 @@ void checkInputs(InAddr source) {
                 setOut(solenoid[i].pin, 1);
             }
         }
+        
+        if (solenoid[i].triggerSw & off) {
+            if (msElapsed - solenoid[i].onSince > solenoid[i].strokeLength) {
+                solenoid[i].onSince = 0;
+                setOut(solenoid[i].pin, 0);
+            }
+        }
     }
     
     inState = state;
+    // todo: queue these
+//    char msg[10];
+//    sprintf(msg, "in %x", state);
+//    send(msg);
     
-    char msg[10];
-    sprintf(msg, "in %x", state);
-    send(msg);
-    
-    if (source == source)
+    if (source == INTCAPA)
         checkInputs(GPIOA);
 }
 
@@ -291,7 +299,7 @@ void __attribute__((vector(_EXTERNAL_1_VECTOR), interrupt(IPL4SOFT), nomips16, n
 void init() {
     for (int i=0; i<SOL_NUM; i++) {
         initOut(solenoid[i].pin, 0);
-        solenoid[i].strokeLength = -1;
+        solenoid[i].strokeLength = 0;
         solenoid[i].strokeOffDms = 0;
         solenoid[i].strokeOnDms = 2;
     }
@@ -301,6 +309,12 @@ void init() {
     solenoid[0].strokeOffDms = 0;
     solenoid[0].strokeOnDms = 2;
     solenoid[0].triggerSw = 0b1;
+    
+    solenoid[1].holdLength = -1;
+    solenoid[1].strokeLength = 0;
+    solenoid[1].holdOffDms = 0;
+    solenoid[1].holdOnDms = 2;
+    solenoid[1].triggerSw = 0b1;
     
     
     initIn(inInt);
@@ -443,7 +457,7 @@ void loop() {
         checkInputs(INTCAPA);
     }
     
-    ledOn = !!(inState & (1<<0));
+    ledInvert = !!(inState & (1<<0));
     
 //    if(msElapsed-last>1500) {
 //        last = msElapsed;
@@ -498,16 +512,18 @@ void loop() {
             else {
                 // already on, ignore it
                 setOut(s->pin, 1);
-//                setOut(led, 0);
             }
         }
         else if (ms - s->onSince < s->strokeLength + s->holdLength || s->holdLength==-1) {
-            if (s->holdOffDms) {
+            if (s->triggerSw && !(s->triggerSw & inState)) {
+                setOut(s->pin, 0);
+                s->onSince = 0;
+            }
+            else if (s->holdOffDms) {
                 setOut(s->pin, dms % (s->holdOffDms + s->holdOnDms) < s->holdOnDms);
             }
             else {
                 setOut(s->pin, 1);
-//                setOut(led, 1);
             }
         }
         else {
