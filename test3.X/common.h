@@ -30,6 +30,8 @@
 //#include <peripheral/eth.h>
 //#include <peripheral/CAN.h>
 #include <stdint.h>
+#include <sys/attribs.h>
+
 
 #define Ob(x)  ((unsigned)Ob_(0 ## x ## uL))
 #define Ob_(x) ((x & 1) | (x >> 2 & 2) | (x >> 4 & 4) | (x >> 6 & 8) |		\
@@ -69,6 +71,7 @@ typedef enum  {
     false = 0,
     true
 } boolean;
+#define bool(a) ((((a))? true : false))
 
 #define SYS_FREQ         (40000000L)
 

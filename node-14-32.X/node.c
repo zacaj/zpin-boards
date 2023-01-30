@@ -55,9 +55,12 @@ int main(void)
     }
 }
 
-#define MESSAGE_LEN 10
-char sendMessage[MESSAGE_LEN+1];
+#if 1
+#define QUEUE_LEN 5
+#define MESSAGE_LEN 16
+char sendMessage[QUEUE_LEN][MESSAGE_LEN+1];
 char* sendAt = NULL;
+u8 queueStart = 0, queueEnd = 0;
 char recvMessage[MESSAGE_LEN+1];
 char* recvAt = NULL;
 #define MESSAGE_START 255
@@ -66,15 +69,23 @@ char* recvAt = NULL;
 void sendByte() {
     if (sendAt) {
         u8 byte = *sendAt;
-        if (*sendAt == '\0' || *sendAt == '\n')
+        INTClearFlag(INT_SOURCE_UART_TX(UART1));
+        UARTSendDataByte(UART1, byte);
+        if (*sendAt == '\0')
             sendAt = NULL;
         else {
             sendAt++;
-            if (sendAt >= sendMessage+MESSAGE_LEN)
+            if (sendAt >= sendMessage[queueStart]+MESSAGE_LEN)
                 sendAt = NULL;
         }
-        INTClearFlag(INT_SOURCE_UART_TX(UART1));
-        UARTSendDataByte(UART1, byte);
+    }
+    if (!sendAt && queueStart != queueEnd) {
+        sendMessage[queueStart][0] = 'X';
+        queueStart++;
+        if (queueStart >= QUEUE_LEN)
+            queueStart = 0;
+        if (queueStart != queueEnd)
+            sendAt = sendMessage[queueStart];
     }
     if (!sendAt) {
         INTClearFlag(INT_SOURCE_UART_TX(UART1));
@@ -83,9 +94,25 @@ void sendByte() {
 }
 
 void send(char* m) {
-    while(sendAt);
-    strcpy(sendMessage, m);
-    sendAt = sendMessage;
+    u8 checksum = 0;
+    int i=0;
+    sendMessage[queueEnd][0] = 254;
+    for (;i<MESSAGE_LEN;i++) {
+        if (!m[i]) {
+            if (!checksum || checksum >= 253) checksum = 1;
+            sendMessage[queueEnd][i+1] = checksum;
+            sendMessage[queueEnd][i+2] = 253;
+            sendMessage[queueEnd][i+3] = 0;
+            break;
+        }
+        checksum += m[i];
+        sendMessage[queueEnd][i+1] = m[i];
+    }
+    if (!sendAt)
+        sendAt = sendMessage[queueEnd];
+    queueEnd++;
+    if (queueEnd >= QUEUE_LEN)
+        queueEnd = 0;
     INTClearFlag(INT_SOURCE_UART_TX(UART1));
     INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
     sendByte();
@@ -120,7 +147,7 @@ void __ISR(_UART_1_VECTOR, IPL2SOFT) IUart1Handler(void)
     INTClearFlag(INT_SOURCE_UART_ERROR(UART1));
     INTClearFlag(INT_SOURCE_UART(UART1));
 }
-   
+#endif
 
 //
 typedef struct {
@@ -138,30 +165,32 @@ typedef struct {
     
     u32 triggerSw; // bitfield, 1 = stroke will begin if this switch turns on, hold will end if this switch turns off
     u32 repluseSw;
+    u32 lastOpened; // ms
+    u8 minOffDms; // min time the switch must be open before triggering again
 } Solenoid;
 //
-#define SOL_DEFAULT(port, pin) { { port, pin }, 0, 0, 1, 0, 0, 1, 0, 0, 0 }
+#define SOL_DEFAULT(port, pin) { { port, pin }, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1 }
 //
 #define SOL_NUM 13
 Solenoid solenoid[SOL_NUM] = {
     SOL_DEFAULT(IOPORT_B, p3),
     SOL_DEFAULT(IOPORT_B, p1),
     SOL_DEFAULT(IOPORT_A, p2),
-    SOL_DEFAULT(IOPORT_A, p4),
+    SOL_DEFAULT(IOPORT_A, p0),
     SOL_DEFAULT(IOPORT_B, p13),
     SOL_DEFAULT(IOPORT_B, p10),
+    SOL_DEFAULT(IOPORT_A, p1),
 //    SOL_DEFAULT(IOPORT_B, p9), // interrupt
-    SOL_DEFAULT(IOPORT_B, p5),
     SOL_DEFAULT(IOPORT_A, p3),
-    SOL_DEFAULT(IOPORT_B, p6),
+    SOL_DEFAULT(IOPORT_A, p4),
     SOL_DEFAULT(IOPORT_B, p12),
     SOL_DEFAULT(IOPORT_B, p15),
-    SOL_DEFAULT(IOPORT_A, p0),
-    SOL_DEFAULT(IOPORT_A, p1),
+    SOL_DEFAULT(IOPORT_B, p5),
+    SOL_DEFAULT(IOPORT_B, p6),
 };
 
 
-
+#if 1
 typedef enum {
     IODIRA  = 0x00,
     IODIRB  = 0x01,
@@ -263,7 +292,7 @@ void checkInputs(InAddr source) {
     // trigger solenoids
     for (int i=0; i<SOL_NUM; i++) {
         if (solenoid[i].triggerSw & on) {
-            if (!solenoid[i].onSince) {
+            if (!solenoid[i].onSince && msElapsed - solenoid[i].lastOpened >= solenoid[i].minOffDms) {
                 solenoid[i].onSince = msElapsed;
                 setOut(solenoid[i].pin, 1);
             }
@@ -278,10 +307,10 @@ void checkInputs(InAddr source) {
     }
     
     inState = state;
-    // todo: queue these
-//    char msg[10];
-//    sprintf(msg, "in %x", state);
-//    send(msg);
+    
+    char msg[10];
+    sprintf(msg, source==INTCAPA? "de %x" : "sw %x", state);
+    send(msg);
     
     if (source == INTCAPA)
         checkInputs(GPIOA);
@@ -295,6 +324,7 @@ void __attribute__((vector(_EXTERNAL_1_VECTOR), interrupt(IPL4SOFT), nomips16, n
     }
     INTClearFlag(INT_SOURCE_EX_INT(1));
 }
+#endif
 
 void init() {
     for (int i=0; i<SOL_NUM; i++) {
@@ -302,10 +332,15 @@ void init() {
         solenoid[i].strokeLength = 0;
         solenoid[i].strokeOffDms = 0;
         solenoid[i].strokeOnDms = 2;
+// stress test        
+//        solenoid[i].onSince=1;
+//        solenoid[i].strokeOnDms = 1;
+//        solenoid[i].strokeOffDms = 1;
+//        solenoid[i].strokeLength = -1;
     }
     
     solenoid[0].holdLength = 0;
-    solenoid[0].strokeLength = 40;
+    solenoid[0].strokeLength = 100;
     solenoid[0].strokeOffDms = 0;
     solenoid[0].strokeOnDms = 2;
     solenoid[0].triggerSw = 0b1;
@@ -324,7 +359,7 @@ void init() {
     INTSetVectorPriority(INT_SOURCE_EX_INT(1), INT_PRIORITY_LEVEL_4);
     INTSetVectorSubPriority(INT_SOURCE_EX_INT(1), INT_SUB_PRIORITY_LEVEL_1);
     INTClearFlag(INT_SOURCE_EX_INT(1));
-    INTEnable(INT_SOURCE_EX_INT(1), INT_ENABLED);
+//    INTEnable(INT_SOURCE_EX_INT(1), INT_ENABLED);
     
 //    initOut(sdo, 1);
 //    initOut(sck, 1);
@@ -373,7 +408,7 @@ void init() {
     U1RXR = 0b0100; // B2
     UARTConfigure(UART1, UART_ENABLE_PINS_TX_RX_ONLY); 
     UARTSetFifoMode(UART1, UART_INTERRUPT_ON_TX_NOT_FULL | UART_INTERRUPT_ON_RX_NOT_EMPTY); 
-    UARTSetLineControl(UART1, UART_DATA_SIZE_8_BITS | UART_PARITY_NONE | UART_STOP_BITS_1); 
+    UARTSetLineControl(UART1, UART_DATA_SIZE_8_BITS | UART_PARITY_NONE | UART_STOP_BITS_2); 
     UARTSetDataRate(UART1, SYS_FREQ, 9600); 
 
     UARTEnable(UART1, UART_ENABLE_FLAGS(UART_PERIPHERAL | UART_RX | UART_TX));
@@ -396,7 +431,7 @@ void init() {
     INTClearFlag(INT_SOURCE_UART_RX(UART1));
 //    INTEnable(INT_SOURCE_UART_RX(UART1), INT_ENABLED);
     
-    send("hello");
+    send("#hello");
 //    CNPDB=0;
 //    for(int i=0; i<16; i++) {
 //        solenoid[i].mode = Disabled;
@@ -448,14 +483,16 @@ uint32_t last=0;
 uint8_t state=0;
 uint32_t I = 0;
 void loop() {
+    I++;
+    setOut(solenoid[SOL_NUM-3].pin, I&1);
     if (U1ASTAbits.URXDA) {
         UARTGetDataByte(UART1);
     }
     U1ASTAbits.OERR = 0;
     
-    if (!getIn(inInt)) {
-        checkInputs(INTCAPA);
-    }
+//    if (!getIn(inInt)) {
+        checkInputs(GPIOA);
+//    }
     
     ledInvert = !!(inState & (1<<0));
     
@@ -463,11 +500,12 @@ void loop() {
 //        last = msElapsed;
 //        solenoid[0].onSince = msElapsed;
 //    }
-    
-//    u16 in = inRead2x(A, GPIOA);
-//    char msg[10];
-//    sprintf(msg, "in %x", in);
-//    send(msg);
+//    if (!sendAt && queueStart == queueEnd) {
+//        u16 in = inRead2x(A, GPIOA);
+//        char msg[10];
+//        sprintf(msg, "#sw %x", in);
+//        send(msg);
+//    }
 #ifdef TEST
     if(msElapsed-last>150) {
         last = msElapsed;
@@ -502,7 +540,7 @@ void loop() {
     u32 ms = msElapsed;
     u32 dms = dmsElapsed;
     
-    for (int i=0; i<SOL_NUM; i++) {
+    for (int i=0; i<SOL_NUM-4; i++) {
         Solenoid* s = &solenoid[i];
         if (!s->onSince) continue;
         if (ms - s->onSince < s->strokeLength || s->strokeLength==-1) {

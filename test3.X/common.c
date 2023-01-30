@@ -35,7 +35,7 @@ void initPic32() {
     mEnableIntCoreTimer();*/
 }
 
-void setOut(const Pin pin, uint8_t value) {
+inline void setOut(const Pin pin, uint8_t value) {
     if(value)
         PORTSetBits(pin.port, pin.pin);
     else
@@ -69,15 +69,25 @@ uint32_t excep_addr;
 
 void crashed();
 
-void _general_exception_handler (unsigned cause, unsigned status) 
+// http://ww1.microchip.com/downloads/en/DeviceDoc/61113C.pdf page 36
+void __attribute__((nomips16)) _general_exception_handler (unsigned cause, unsigned status) 
 { 
+//   excep_code = (cause & 0x0000007C) >> 2; 
+//   excep_addr = __builtin_mfc0(_CP0_EPC, _CP0_EPC_SELECT); 
+//   if ((cause & 0x80000000) != 0) 
+//      excep_addr += 4;  
+    excep_code=(_CP0_GET_CAUSE() & 0x0000007C) >> 2;
+    excep_addr=_CP0_GET_EPC();
+
+    _CP0_SET_STATUS(_CP0_GET_STATUS()&0xFFFFFFE); 
+    INTDisableInterrupts();
+   
     crashed();
     
-   excep_code = (cause & 0x0000007C) >> 2; 
-   excep_addr = __builtin_mfc0(_CP0_EPC, _CP0_EPC_SELECT); 
-   if ((cause & 0x80000000) != 0) 
-      excep_addr += 4;  
    
+//   SYS_RESET_SoftwareReset();
+   RSWRSTbits.SWRST = 1;
+   u32 dummy = RSWRST;
    while (1); 
 }  
 
