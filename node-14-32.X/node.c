@@ -70,9 +70,9 @@ u8 recvLen = 0;
 void sendByte() {
     if (sendAt) {
         u8 byte = *sendAt;
-        INTClearFlag(INT_SOURCE_UART_TX(UART1));
+        INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
         UARTSendDataByte(UART1, byte);
-        if (*sendAt == '\0')
+        if (byte == '\0' || byte == MESSAGE_END)
             sendAt = NULL;
         else {
             sendAt++;
@@ -89,34 +89,37 @@ void sendByte() {
             sendAt = sendMessage[queueStart];
     }
     if (!sendAt) {
-        INTClearFlag(INT_SOURCE_UART_TX(UART1));
+//        INTClearFlag(INT_SOURCE_UART_TX(UART1));
         INTEnable(INT_SOURCE_UART_TX(UART1), INT_DISABLED);
     }
+    INTClearFlag(INT_SOURCE_UART_TX(UART1));
 }
 
 void send(u8* m) {
     u8 checksum = 0;
-    int i=0;
-    sendMessage[queueEnd][0] = MESSAGE_START;
+    u8 i=0;
+    u8 queueAt = queueEnd++;
+    if (queueEnd >= QUEUE_LEN)
+        queueEnd = 0;
+    sendMessage[queueAt][0] = MESSAGE_START;
     for (;i<MESSAGE_LEN;i++) {
         if (!m[i]) {
             if (!checksum || checksum >= MESSAGE_END) checksum = 1;
-            sendMessage[queueEnd][i+1] = checksum;
-            sendMessage[queueEnd][i+2] = MESSAGE_END;
-            sendMessage[queueEnd][i+3] = 0;
+            sendMessage[queueAt][i+1] = checksum;
+            sendMessage[queueAt][i+2] = MESSAGE_END;
+            sendMessage[queueAt][i+3] = 0;
             break;
         }
         checksum += m[i];
-        sendMessage[queueEnd][i+1] = m[i];
+        sendMessage[queueAt][i+1] = m[i];
     }
-    if (!sendAt)
-        sendAt = sendMessage[queueEnd];
-    queueEnd++;
-    if (queueEnd >= QUEUE_LEN)
-        queueEnd = 0;
-    INTClearFlag(INT_SOURCE_UART_TX(UART1));
-    INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
-    sendByte();
+    if (!sendAt) {
+        sendAt = sendMessage[queueAt];
+//        INTClearFlag(INT_SOURCE_UART_TX(UART1));
+        INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
+        while(!UARTTransmissionHasCompleted(UART1));
+        sendByte();
+    }
 }
 
 void gotMessage(u8* data);
@@ -380,7 +383,7 @@ void checkInputs(InAddr source) {
     inState = state;
     
     char msg[10];
-    sprintf(msg, source==INTCAPA? "de %x" : "sw %x", state);
+    sprintf(msg, source==INTCAPA? "#de %x" : "#sw %x", state);
     send(msg);
     
     if (source == INTCAPA)
@@ -480,7 +483,7 @@ void init() {
     UARTConfigure(UART1, UART_ENABLE_PINS_TX_RX_ONLY); 
     UARTSetFifoMode(UART1, UART_INTERRUPT_ON_TX_NOT_FULL | UART_INTERRUPT_ON_RX_NOT_EMPTY); 
     UARTSetLineControl(UART1, UART_DATA_SIZE_8_BITS | UART_PARITY_NONE | UART_STOP_BITS_2); 
-    UARTSetDataRate(UART1, SYS_FREQ, 9600); 
+    UARTSetDataRate(UART1, SYS_FREQ, 115200); 
 
     UARTEnable(UART1, UART_ENABLE_FLAGS(UART_PERIPHERAL | UART_RX | UART_TX));
     U1TXREG = 'h';
