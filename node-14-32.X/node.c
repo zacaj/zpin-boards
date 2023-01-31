@@ -63,8 +63,9 @@ char* sendAt = NULL;
 u8 queueStart = 0, queueEnd = 0;
 char recvMessage[MESSAGE_LEN+1];
 char* recvAt = NULL;
-#define MESSAGE_START 255
-#define MESSAGE_END 254
+u8 recvLen = 0;
+#define MESSAGE_START 254
+#define MESSAGE_END 253
 
 void sendByte() {
     if (sendAt) {
@@ -93,15 +94,15 @@ void sendByte() {
     }
 }
 
-void send(char* m) {
+void send(u8* m) {
     u8 checksum = 0;
     int i=0;
-    sendMessage[queueEnd][0] = 254;
+    sendMessage[queueEnd][0] = MESSAGE_START;
     for (;i<MESSAGE_LEN;i++) {
         if (!m[i]) {
-            if (!checksum || checksum >= 253) checksum = 1;
+            if (!checksum || checksum >= MESSAGE_END) checksum = 1;
             sendMessage[queueEnd][i+1] = checksum;
-            sendMessage[queueEnd][i+2] = 253;
+            sendMessage[queueEnd][i+2] = MESSAGE_END;
             sendMessage[queueEnd][i+3] = 0;
             break;
         }
@@ -118,6 +119,7 @@ void send(char* m) {
     sendByte();
 }
 
+void gotMessage(u8* data);
 void __ISR(_UART_1_VECTOR, IPL2SOFT) IUart1Handler(void)
 {
     if (INTGetFlag(INT_SOURCE_UART_TX(UART1))) {
@@ -127,12 +129,16 @@ void __ISR(_UART_1_VECTOR, IPL2SOFT) IUart1Handler(void)
         u8 byte = UARTGetDataByte(UART1);
         if (byte == MESSAGE_START)
             recvAt = recvMessage;
-        else if (byte == MESSAGE_END) {
-            *recvAt = 0;
-//            send(recvMessage);
+        else if (recvAt - recvMessage == recvLen+1 && recvLen) {
+            if (byte == MESSAGE_END) {
+                *recvAt = byte;
+                gotMessage(recvMessage);
+            }
             recvAt = NULL;
         }
         else if (recvAt) {
+            if (recvAt == recvMessage)
+                recvLen = byte;
             *recvAt = byte;
             recvAt++;
             if (recvAt >= recvMessage+MESSAGE_LEN)
@@ -164,7 +170,7 @@ typedef struct {
     u16 holdOffDms;
     
     u32 triggerSw; // bitfield, 1 = stroke will begin if this switch turns on, hold will end if this switch turns off
-    u32 repluseSw;
+    u32 repulseSw;
     u32 lastOpened; // ms
     u8 minOffDms; // min time the switch must be open before triggering again
 } Solenoid;
@@ -189,6 +195,71 @@ Solenoid solenoid[SOL_NUM] = {
     SOL_DEFAULT(IOPORT_B, p6),
 };
 
+void gotMessage(u8* data) {
+    u8 len = data[0];
+    u8 i=0; 
+    u8 checksum = 0;
+    for (;i<len; i++) {
+//        if (!data[i] || data[i]==MESSAGE_END) break;
+        checksum += data[i];
+    }
+//    checksum -= data[i-1];
+    if (!checksum || checksum >= MESSAGE_END) checksum = 1;
+    if (checksum != data[len]) {
+        send("#checksum?");
+        return;
+    }
+    
+    u8 num = data[3];
+    if (num >= SOL_NUM) {
+        send("#num?");
+        return;
+    }
+    switch (data[1]) {
+        case 'D': // DS#
+            solenoid[num].onSince = 0;
+            setOut(solenoid[num].pin, 0);
+            solenoid[num].holdLength = 0;
+            solenoid[num].strokeLength = 0;
+            solenoid[num].triggerSw = 0;
+            break;
+        case 'C': {//CS#{sl,sl,son,soff,hl,hl,hon,hoff}
+            u16 length = (data[4]<<8)|data[5];
+            if (length == -1)
+                solenoid[num].strokeLength = -1;
+            else
+                solenoid[num].strokeLength = length;
+            solenoid[num].strokeOnDms = data[6];
+            solenoid[num].strokeOffDms = data[7];
+            length = (data[8]<<8)|data[9];
+            if (length == -1)
+                solenoid[num].holdLength = -1;
+            else
+                solenoid[num].holdLength = length;
+            solenoid[num].holdOnDms = data[10];
+            solenoid[num].holdOffDms = data[11];
+            solenoid[num].triggerSw = 0;
+            solenoid[num].repulseSw = 0;
+            solenoid[num].minOffDms = 0;
+            break;
+        }
+        case 'F': // FS#
+            solenoid[num].onSince = msElapsed;
+            setOut(solenoid[i].pin, 1);
+            break;
+        case 'O': // OS#
+            solenoid[num].onSince = 0;
+            setOut(solenoid[num].pin, 0);
+            break;
+        case 'T': // TS#{trigger x4, repulse x4, minoffdms}
+            solenoid[num].triggerSw = (data[4]<<24)|(data[5]<<16)|(data[6]<<8)|(data[7]);
+            solenoid[num].repulseSw = (data[8]<<24)|(data[9]<<16)|(data[10]<<8)|(data[11]);
+            solenoid[num].minOffDms = data[12];
+            break;            
+        default:
+            send("#command?");
+    }    
+}
 
 #if 1
 typedef enum {
@@ -429,7 +500,7 @@ void init() {
 //    IEC1bits.U1TXIE = 1;
 //     INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
     INTClearFlag(INT_SOURCE_UART_RX(UART1));
-//    INTEnable(INT_SOURCE_UART_RX(UART1), INT_ENABLED);
+    INTEnable(INT_SOURCE_UART_RX(UART1), INT_ENABLED);
     
     send("#hello");
 //    CNPDB=0;
