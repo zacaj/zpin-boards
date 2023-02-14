@@ -57,13 +57,14 @@ int main(void)
 
 #if 1
 #define QUEUE_LEN 5
-#define MESSAGE_LEN 16
+#define MESSAGE_LEN 32
 char sendMessage[QUEUE_LEN][MESSAGE_LEN+1];
 char* sendAt = NULL;
 u8 queueStart = 0, queueEnd = 0;
 char recvMessage[MESSAGE_LEN+1];
 char* recvAt = NULL;
 u8 recvLen = 0;
+u32 recvStartTime = 0;
 #define MESSAGE_START 254
 #define MESSAGE_END 253
 
@@ -79,14 +80,15 @@ void sendByte() {
             if (sendAt >= sendMessage[queueStart]+MESSAGE_LEN)
                 sendAt = NULL;
         }
-    }
-    if (!sendAt && queueStart != queueEnd) {
-        sendMessage[queueStart][0] = 'X';
-        queueStart++;
-        if (queueStart >= QUEUE_LEN)
-            queueStart = 0;
-        if (queueStart != queueEnd)
-            sendAt = sendMessage[queueStart];
+        
+        if (!sendAt && queueStart != queueEnd) {
+            sendMessage[queueStart][0] = 'X';
+            queueStart++;
+            if (queueStart >= QUEUE_LEN)
+                queueStart = 0;
+            if (queueStart != queueEnd)
+                sendAt = sendMessage[queueStart];
+        }
     }
     if (!sendAt) {
 //        INTClearFlag(INT_SOURCE_UART_TX(UART1));
@@ -95,24 +97,25 @@ void sendByte() {
     INTClearFlag(INT_SOURCE_UART_TX(UART1));
 }
 
-void send(u8* m) {
+void send(u8* m, u8 len) {
+    ledInvert = !ledInvert;
     u8 checksum = 0;
     u8 i=0;
     u8 queueAt = queueEnd++;
     if (queueEnd >= QUEUE_LEN)
         queueEnd = 0;
     sendMessage[queueAt][0] = MESSAGE_START;
-    for (;i<MESSAGE_LEN;i++) {
-        if (!m[i]) {
-            if (!checksum || checksum >= MESSAGE_END) checksum = 1;
-            sendMessage[queueAt][i+1] = checksum;
-            sendMessage[queueAt][i+2] = MESSAGE_END;
-            sendMessage[queueAt][i+3] = 0;
+    for (;i<MESSAGE_LEN-3;i++) {
+        if ((len && i==len) || (!len && !m[i])) {
             break;
         }
         checksum += m[i];
         sendMessage[queueAt][i+1] = m[i];
     }
+    if (!checksum || checksum >= MESSAGE_END) checksum = 1;
+    sendMessage[queueAt][i+1] = checksum;
+    sendMessage[queueAt][i+2] = MESSAGE_END;
+    sendMessage[queueAt][i+3] = 0;
     if (!sendAt) {
         sendAt = sendMessage[queueAt];
 //        INTClearFlag(INT_SOURCE_UART_TX(UART1));
@@ -130,8 +133,10 @@ void __ISR(_UART_1_VECTOR, IPL2SOFT) IUart1Handler(void)
     }
     if (INTGetFlag(INT_SOURCE_UART_RX(UART1))) {
         u8 byte = UARTGetDataByte(UART1);
-        if (byte == MESSAGE_START)
+        if (byte == MESSAGE_START) {
             recvAt = recvMessage;
+            recvStartTime = dmsElapsed;
+        }
         else if (recvAt - recvMessage == recvLen+1 && recvLen) {
             if (byte == MESSAGE_END) {
                 *recvAt = byte;
@@ -176,9 +181,10 @@ typedef struct {
     u32 repulseSw;
     u32 lastOpened; // ms
     u8 minOffDms; // min time the switch must be open before triggering again
+    u8 minOnDms; // min time the coil must be energized before it can untrigger
 } Solenoid;
 //
-#define SOL_DEFAULT(port, pin) { { port, pin }, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1 }
+#define SOL_DEFAULT(port, pin) { { port, pin }, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0 }
 //
 #define SOL_NUM 13
 Solenoid solenoid[SOL_NUM] = {
@@ -199,6 +205,7 @@ Solenoid solenoid[SOL_NUM] = {
 };
 
 void gotMessage(u8* data) {
+    ledInvert = !ledInvert;
     u8 len = data[0];
     u8 i=0; 
     u8 checksum = 0;
@@ -209,16 +216,28 @@ void gotMessage(u8* data) {
 //    checksum -= data[i-1];
     if (!checksum || checksum >= MESSAGE_END) checksum = 1;
     if (checksum != data[len]) {
-        send("#checksum?");
+        char msg[7];
+        sprintf(msg, "__cksm");
+        msg[0] = data[0];
+        msg[1] = data[len];
+        msg[2] = data[3];
+        send(msg, 0);
         return;
     }
     
     u8 num = data[3];
     if (num >= SOL_NUM) {
-        send("#num?");
+        send("#num?", 0);
         return;
     }
     switch (data[1]) {
+        case 'A': {// AK#
+            char msg[16];
+            sprintf(msg, "#ack %x %x", num, recvStartTime);
+            msg[0] = data[0];
+            send(msg, 0);
+            break;
+        }
         case 'D': // DS#
             solenoid[num].onSince = 0;
             setOut(solenoid[num].pin, 0);
@@ -260,7 +279,7 @@ void gotMessage(u8* data) {
             solenoid[num].minOffDms = data[12];
             break;            
         default:
-            send("#command?");
+            send("#command?", 0);
     }    
 }
 
@@ -356,7 +375,10 @@ void inWrite2xBoth(InAddr address, u8 value) {
 u32 inState = 0;
 
 void checkInputs(InAddr source) {
-    u32 state = 0xFFFF ^ inRead2x(A, source);
+    source = GPIOA;
+    u16 a = inRead2x(A, source);
+    u16 b = inRead2x(B, source);
+    u32 state = 0xFFFFFFFF ^ (a | (b<<16));
     if (state == inState) return;
     
     u32 changed = inState ^ state;
@@ -364,27 +386,45 @@ void checkInputs(InAddr source) {
     u32 off = changed & (0xFFFF ^ state);
     
     // trigger solenoids
+    u8 triggered = -1;
+    u8 untriggered = -1;
     for (int i=0; i<SOL_NUM; i++) {
         if (solenoid[i].triggerSw & on) {
             if (!solenoid[i].onSince && msElapsed - solenoid[i].lastOpened >= solenoid[i].minOffDms) {
                 solenoid[i].onSince = msElapsed;
                 setOut(solenoid[i].pin, 1);
+//                triggered |= solenoid[i].triggerSw & on;
+                triggered = i;
             }
         }
         
         if (solenoid[i].triggerSw & off) {
-            if (msElapsed - solenoid[i].onSince > solenoid[i].strokeLength) {
+            solenoid[i].lastOpened = msElapsed;
+            if (msElapsed - solenoid[i].onSince > solenoid[i].strokeLength
+                && msElapsed - solenoid[i].onSince >= solenoid[i].minOnDms
+            ) {
                 solenoid[i].onSince = 0;
                 setOut(solenoid[i].pin, 0);
+//                untriggered |= solenoid[i].triggerSw & off;
+                untriggered = i;
             }
         }
     }
     
     inState = state;
     
-    char msg[10];
-    sprintf(msg, source==INTCAPA? "#de %x" : "#sw %x", state);
-    send(msg);
+    char msg[MESSAGE_LEN];
+    sprintf(msg, source==INTCAPA? "#iq %x %x %x %x" : "#sw %x %x %x %x", state, dmsElapsed, triggered, untriggered);
+//    msg[0] = '#';
+//    msg[1] = 's';
+//    msg[2] = 'w';
+//    msg[3] = ' ';
+//    *(u32*)(msg+4) = state;
+//    *(u32*)(msg+8) = (u32)dmsElapsed;
+//    msg[12] = triggered;
+//    msg[13] = untriggered;
+    
+    send(msg, 0);
     
     if (source == INTCAPA)
         checkInputs(GPIOA);
@@ -413,68 +453,20 @@ void init() {
 //        solenoid[i].strokeLength = -1;
     }
     
-    solenoid[0].holdLength = 0;
-    solenoid[0].strokeLength = 100;
-    solenoid[0].strokeOffDms = 0;
-    solenoid[0].strokeOnDms = 2;
-    solenoid[0].triggerSw = 0b1;
-    
-    solenoid[1].holdLength = -1;
-    solenoid[1].strokeLength = 0;
-    solenoid[1].holdOffDms = 0;
-    solenoid[1].holdOnDms = 2;
-    solenoid[1].triggerSw = 0b1;
-    
-    
-    initIn(inInt);
-    CNPUBbits.CNPUB9 = 1; // pullup on B9
-    INTCONbits.INT1EP = 0; // interrupt on falling edge
-    INT1R = 0b0100; // B9
-    INTSetVectorPriority(INT_SOURCE_EX_INT(1), INT_PRIORITY_LEVEL_4);
-    INTSetVectorSubPriority(INT_SOURCE_EX_INT(1), INT_SUB_PRIORITY_LEVEL_1);
-    INTClearFlag(INT_SOURCE_EX_INT(1));
-//    INTEnable(INT_SOURCE_EX_INT(1), INT_ENABLED);
-    
-//    initOut(sdo, 1);
-//    initOut(sck, 1);
-//    initIn(sdi);
-    PPSUnLock;
-//    initOut(inReset, 1);
-    initOut(inCS, 1);
-    RPB11R = 0b0011; // SDO 1
-    SDI1R = 0b0100; // B8
-//    setOut(inReset, 0);
-//    for(int i=0;i<10000;i++);
-//    setOut(inReset, 1);
-//    for(int i=0;i<10000;i++);
-//    setOut(inCS, 0);
-    SpiChnOpenEx(1, SPI_OPEN_ON|SPI_OPEN_MODE8|SPI_OPEN_MSTEN|SPI_OPEN_CKE_REV|SPI_OPEN_SMP_END, SPI_OPEN2_IGNROV|SPI_OPEN2_IGNTUR, 8);
-//    setOut(inCS, 1);
-//    for(int i=0;i<10000;i++);
+//    solenoid[0].holdLength = 0;
+//    solenoid[0].strokeLength = 100;
+//    solenoid[0].strokeOffDms = 0;
+//    solenoid[0].strokeOnDms = 2;
+//    solenoid[0].triggerSw = 0b1;
+//    
+//    solenoid[1].holdLength = -1;
+//    solenoid[1].strokeLength = 0;
+//    solenoid[1].holdOffDms = 0;
+//    solenoid[1].holdOnDms = 2;
+//    solenoid[1].triggerSw = 0b1;
     
     
-    inWrite(A, IOCON, 0b01001100); // INTs tied, INT active low, seq read
-//    inWrite(A, IOCON+1, 0b01101110); // INTs tied, INT active low, seq read
-    inWrite2xBoth(IODIRA, 0xFF); // 0 = output
-//    inWrite4(IODIRA, 0x00); // 0 = output
-    inWrite2xBoth(IPOLA, 0b00000000); // 0 = not inverted
-//    inWrite2xBoth(GPIOA, 0b11110000);
-//    inWrite(A, GPIOA, 0b00111100);
-//    inWrite(A, GPIOB, 0b10101100);
-//    inWrite4(OLATA, 0b01110000);
-    inWrite2xBoth(GPPUA, 0b11111111); // 1 = pull up enabled
-    inWrite2xBoth(IPOLA, 0x00); // 0 = non-inverted
-    inWrite2xBoth(GPINTENA, 0xFF); // 1 = enable interrupt
-    inWrite2xBoth(INTCONA, 0x00); // 0 = interrupt on any change
-    
-//    u8 ctrl = inRead(A, IOCON);
-    
-    u8 ctrl= inRead(A, IOCON);
-    u8 a= inRead(A, GPIOA);
-    u8 b= inRead(A, GPIOB);
-//    while(1) {
-//        ctrl = inRead(A, IOCON);
-//    }
+#ifndef DISABLE_UART
     initOut(tx, 1);
     initIn(rx);
 //    PPSOutput(1, RPB7, U1TX);
@@ -505,13 +497,68 @@ void init() {
     INTClearFlag(INT_SOURCE_UART_RX(UART1));
     INTEnable(INT_SOURCE_UART_RX(UART1), INT_ENABLED);
     
-    send("#hello");
+    send("#hello", 0);
 //    CNPDB=0;
 //    for(int i=0; i<16; i++) {
 //        solenoid[i].mode = Disabled;
 //        initSolenoid(&solenoid[i]);
 ////        setOut(solenoid[i].pin, !solenoid[i].on);
 //    }
+#endif
+#ifndef DISABLE_IO
+    initIn(inInt);
+    CNPUBbits.CNPUB9 = 1; // pullup on B9
+    INTCONbits.INT1EP = 0; // interrupt on falling edge
+    INT1R = 0b0100; // B9
+    INTSetVectorPriority(INT_SOURCE_EX_INT(1), INT_PRIORITY_LEVEL_4);
+    INTSetVectorSubPriority(INT_SOURCE_EX_INT(1), INT_SUB_PRIORITY_LEVEL_1);
+    INTClearFlag(INT_SOURCE_EX_INT(1));
+//    INTEnable(INT_SOURCE_EX_INT(1), INT_ENABLED);
+    
+//    initOut(sdo, 1);
+//    initOut(sck, 1);
+//    initIn(sdi);
+    PPSUnLock;
+//    initOut(inReset, 1);
+    initOut(inCS, 1);
+    RPB11R = 0b0011; // SDO 1
+    SDI1R = 0b0100; // B8
+//    setOut(inReset, 0);
+//    for(int i=0;i<10000;i++);
+//    setOut(inReset, 1);
+//    for(int i=0;i<10000;i++);
+//    setOut(inCS, 0);
+    SpiChnOpenEx(1, SPI_OPEN_ON|SPI_OPEN_MODE8|SPI_OPEN_MSTEN|SPI_OPEN_CKE_REV|SPI_OPEN_SMP_END, SPI_OPEN2_IGNROV|SPI_OPEN2_IGNTUR, 4);
+//    setOut(inCS, 1);
+//    for(int i=0;i<10000;i++);
+    
+    while(inRead(A, IODIRA)!= 0xFF || inRead(A, IPOLA)!=0);
+    
+    
+    inWrite(A, IOCON, 0b01001100); // INTs tied, INT active low, seq read, addr enabled
+//    inWrite(B, IOCON, 0b01001100); // INTs tied, INT active low, seq read, addr enabled
+//    inWrite(A, IOCON+1, 0b01101110); // INTs tied, INT active low, seq read
+    inWrite2xBoth(IODIRA, 0xFF); // 0 = output
+//    inWrite4(IODIRA, 0x00); // 0 = output
+    inWrite2xBoth(IPOLA, 0b00000000); // 0 = not inverted
+//    inWrite2xBoth(GPIOA, 0b11110000);
+//    inWrite(A, GPIOA, 0b00111100);
+//    inWrite(A, GPIOB, 0b10101100);
+//    inWrite4(OLATA, 0b01110000);
+    inWrite2xBoth(GPPUA, 0b11111111); // 1 = pull up enabled
+    inWrite2xBoth(IPOLA, 0x00); // 0 = non-inverted
+    inWrite2xBoth(GPINTENA, 0x00); // 1 = enable interrupt
+    inWrite2xBoth(INTCONA, 0x00); // 0 = interrupt on any change
+    
+//    u8 ctrl = inRead(A, IOCON);
+    
+    u8 ctrl= inRead(A, IOCON);
+    u8 a= inRead(A, GPIOA);
+    u8 b= inRead(A, GPIOB);
+//    while(1) {
+//        ctrl = inRead(A, IOCON);
+//    }
+#endif
 #ifdef TEST
     for(int i=0; i<16; i++) {
         solenoid[i].mode = Momentary;
@@ -558,7 +605,7 @@ uint8_t state=0;
 uint32_t I = 0;
 void loop() {
     I++;
-    setOut(solenoid[SOL_NUM-3].pin, I&1);
+//    setOut(solenoid[SOL_NUM-3].pin, I&1);
     if (U1ASTAbits.URXDA) {
         UARTGetDataByte(UART1);
     }
@@ -568,7 +615,7 @@ void loop() {
         checkInputs(GPIOA);
 //    }
     
-    ledInvert = !!(inState & (1<<0));
+//    ledInvert = !!(inState & (1<<0));
     
 //    if(msElapsed-last>1500) {
 //        last = msElapsed;
