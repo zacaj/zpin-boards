@@ -1,5 +1,6 @@
 #include "../test3.X/common.c"
-
+#define DISABLE_IRQ 1
+#define ENABLE_GVD 1
 Pin led = { IOPORT_B, p0 };
 Pin tx = { IOPORT_B, p7 };
 Pin rx = { IOPORT_B, p2 };
@@ -8,8 +9,14 @@ Pin sdi = { IOPORT_B, p8 };
 Pin sck = { IOPORT_B, p14 };
 Pin inCS = { IOPORT_B, p4 };
 Pin inReset = { IOPORT_B, p5 };
+#ifndef DISALBE_IRQ
 Pin inInt = { IOPORT_B, p9 };
+#endif
+#ifdef ENABLE_GVD
+Pin gvd = { IOPORT_B, p9 };
+#endif
 
+u8 enableSolenoids = 1;
 
 void loop();
 
@@ -55,7 +62,7 @@ int main(void)
     }
 }
 
-#if 1
+#ifndef DISABLE_UART
 #define QUEUE_LEN 5
 #define MESSAGE_LEN 32
 char sendMessage[QUEUE_LEN][MESSAGE_LEN+1];
@@ -180,13 +187,13 @@ typedef struct {
     u32 triggerSw; // bitfield, 1 = stroke will begin if this switch turns on, hold will end if this switch turns off
     u32 repulseSw;
     u32 lastOpened; // ms
-    u8 minOffDms; // min time the switch must be open before triggering again
+    u8 minOffMs; // min time the switch must be open before triggering again
     u8 minOnDms; // min time the coil must be energized before it can untrigger
 } Solenoid;
 //
 #define SOL_DEFAULT(port, pin) { { port, pin }, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0 }
 //
-#define SOL_NUM 13
+#define SOL_NUM 14
 Solenoid solenoid[SOL_NUM] = {
     SOL_DEFAULT(IOPORT_B, p3),
     SOL_DEFAULT(IOPORT_B, p1),
@@ -195,7 +202,7 @@ Solenoid solenoid[SOL_NUM] = {
     SOL_DEFAULT(IOPORT_B, p13),
     SOL_DEFAULT(IOPORT_B, p10),
     SOL_DEFAULT(IOPORT_A, p1),
-//    SOL_DEFAULT(IOPORT_B, p9), // interrupt
+    SOL_DEFAULT(IOPORT_B, p9), // interrupt
     SOL_DEFAULT(IOPORT_A, p3),
     SOL_DEFAULT(IOPORT_A, p4),
     SOL_DEFAULT(IOPORT_B, p12),
@@ -203,6 +210,30 @@ Solenoid solenoid[SOL_NUM] = {
     SOL_DEFAULT(IOPORT_B, p5),
     SOL_DEFAULT(IOPORT_B, p6),
 };
+
+void initSolenoids() {
+    for (int i=0; i<SOL_NUM; i++) {
+        if (i==7) continue;
+        initOut(solenoid[i].pin, 0);
+        solenoid[i].strokeLength = 0;
+        solenoid[i].strokeOffDms = 0;
+        solenoid[i].strokeOnDms = 2;
+        solenoid[i].holdLength = 0;
+        solenoid[i].holdOffDms = 0;
+        solenoid[i].holdOnDms = 0;
+        solenoid[i].lastOpened = 0;
+        solenoid[i].minOffMs = 1;
+        solenoid[i].minOnDms = 0;
+        solenoid[i].onSince = 0;
+        solenoid[i].repulseSw = 0;
+        solenoid[i].triggerSw = 0;
+// stress test        
+//        solenoid[i].onSince=1;
+//        solenoid[i].strokeOnDms = 1;
+//        solenoid[i].strokeOffDms = 1;
+//        solenoid[i].strokeLength = -1;
+    }
+}
 
 void gotMessage(u8* data) {
     ledInvert = !ledInvert;
@@ -216,12 +247,12 @@ void gotMessage(u8* data) {
 //    checksum -= data[i-1];
     if (!checksum || checksum >= MESSAGE_END) checksum = 1;
     if (checksum != data[len]) {
-        char msg[7];
-        sprintf(msg, "__cksm");
+        char msg[MESSAGE_LEN];
+        sprintf(msg, "___cksm");
         msg[0] = data[0];
         msg[1] = data[len];
         msg[2] = data[3];
-        send(msg, 0);
+        send(msg, 7);
         return;
     }
     
@@ -230,12 +261,14 @@ void gotMessage(u8* data) {
         send("#num?", 0);
         return;
     }
+    if (num == 7 && data[1] != 'A') return;
     switch (data[1]) {
         case 'A': {// AK#
-            char msg[16];
+            char msg[MESSAGE_LEN];
             sprintf(msg, "#ack %x %x", num, recvStartTime);
             msg[0] = data[0];
             send(msg, 0);
+            initSolenoids();
             break;
         }
         case 'D': // DS#
@@ -244,6 +277,7 @@ void gotMessage(u8* data) {
             solenoid[num].holdLength = 0;
             solenoid[num].strokeLength = 0;
             solenoid[num].triggerSw = 0;
+            solenoid[num].repulseSw = 0;
             break;
         case 'C': {//CS#{sl,sl,son,soff,hl,hl,hon,hoff}
             u16 length = (data[4]<<8)|data[5];
@@ -262,12 +296,12 @@ void gotMessage(u8* data) {
             solenoid[num].holdOffDms = data[11];
             solenoid[num].triggerSw = 0;
             solenoid[num].repulseSw = 0;
-            solenoid[num].minOffDms = 0;
+            solenoid[num].minOffMs = 0;
             break;
         }
         case 'F': // FS#
             solenoid[num].onSince = msElapsed;
-            setOut(solenoid[i].pin, 1);
+            setOut(solenoid[i].pin, enableSolenoids);
             break;
         case 'O': // OS#
             solenoid[num].onSince = 0;
@@ -276,7 +310,7 @@ void gotMessage(u8* data) {
         case 'T': // TS#{trigger x4, repulse x4, minoffdms}
             solenoid[num].triggerSw = (data[4]<<24)|(data[5]<<16)|(data[6]<<8)|(data[7]);
             solenoid[num].repulseSw = (data[8]<<24)|(data[9]<<16)|(data[10]<<8)|(data[11]);
-            solenoid[num].minOffDms = data[12];
+            solenoid[num].minOffMs = data[12];
             break;            
         default:
             send("#command?", 0);
@@ -376,42 +410,57 @@ u32 inState = 0;
 
 void checkInputs(InAddr source) {
     source = GPIOA;
-    u16 a = inRead2x(A, source);
-    u16 b = inRead2x(B, source);
-    u32 state = 0xFFFFFFFF ^ (a | (b<<16));
-    if (state == inState) return;
+    u32 state;
+    u16 a, b;
+    u32 last = 0xFFFFFFFF;
+    
+    u8 i = 2;
+    while(1) {
+        a = inRead2x(A, source) ^ 0xFFFF;
+        b = inRead2x(B, source) ^ 0xFFFF;
+        state = (a | (b<<16));
+        if (state == inState) return;
+        if (state == last) break;
+        last = state;
+        if (--i==0) return;
+    }    
     
     u32 changed = inState ^ state;
     u32 on = changed & state;
-    u32 off = changed & (0xFFFF ^ state);
+    u32 off = changed & (0xFFFFFFFF ^ state);
     
     // trigger solenoids
     u8 triggered = -1;
     u8 untriggered = -1;
-    for (int i=0; i<SOL_NUM; i++) {
-        if (solenoid[i].triggerSw & on) {
-            if (!solenoid[i].onSince && msElapsed - solenoid[i].lastOpened >= solenoid[i].minOffDms) {
-                solenoid[i].onSince = msElapsed;
-                setOut(solenoid[i].pin, 1);
-//                triggered |= solenoid[i].triggerSw & on;
-                triggered = i;
+    if (a != 0xFFFF && b != 0xFFFF) {
+        for (int i=0; i<SOL_NUM; i++) {
+            if (i==7) continue;
+            if (solenoid[i].triggerSw & on) {
+                if (!solenoid[i].onSince && msElapsed - solenoid[i].lastOpened >= solenoid[i].minOffMs) {
+                    solenoid[i].onSince = msElapsed;
+                    setOut(solenoid[i].pin, enableSolenoids);
+                    triggered = i;
+                }
+            }
+
+            if (solenoid[i].triggerSw & off) {
+                solenoid[i].lastOpened = msElapsed;
+                if (msElapsed - solenoid[i].onSince > solenoid[i].strokeLength
+                    && msElapsed - solenoid[i].onSince >= solenoid[i].minOnDms
+                ) {
+                    solenoid[i].onSince = 0;
+                    setOut(solenoid[i].pin, 0);
+                    untriggered = i;
+                }
             }
         }
-        
-        if (solenoid[i].triggerSw & off) {
-            solenoid[i].lastOpened = msElapsed;
-            if (msElapsed - solenoid[i].onSince > solenoid[i].strokeLength
-                && msElapsed - solenoid[i].onSince >= solenoid[i].minOnDms
-            ) {
-                solenoid[i].onSince = 0;
-                setOut(solenoid[i].pin, 0);
-//                untriggered |= solenoid[i].triggerSw & off;
-                untriggered = i;
-            }
-        }
+
+        inState = state;
     }
-    
-    inState = state;
+    else {
+        triggered = inRead(A, IOCON);
+        untriggered = inRead(B, IOCON);
+    }
     
     char msg[MESSAGE_LEN];
     sprintf(msg, source==INTCAPA? "#iq %x %x %x %x" : "#sw %x %x %x %x", state, dmsElapsed, triggered, untriggered);
@@ -430,6 +479,7 @@ void checkInputs(InAddr source) {
         checkInputs(GPIOA);
 }
 
+#ifndef DISABLE_IRQ
 void __attribute__((vector(_EXTERNAL_1_VECTOR), interrupt(IPL4SOFT), nomips16, no_fpu))  IInInterruptHandler(void)
 {
     if (INTGetFlag(INT_SOURCE_EX_INT(1))) {
@@ -439,19 +489,10 @@ void __attribute__((vector(_EXTERNAL_1_VECTOR), interrupt(IPL4SOFT), nomips16, n
     INTClearFlag(INT_SOURCE_EX_INT(1));
 }
 #endif
+#endif
 
 void init() {
-    for (int i=0; i<SOL_NUM; i++) {
-        initOut(solenoid[i].pin, 0);
-        solenoid[i].strokeLength = 0;
-        solenoid[i].strokeOffDms = 0;
-        solenoid[i].strokeOnDms = 2;
-// stress test        
-//        solenoid[i].onSince=1;
-//        solenoid[i].strokeOnDms = 1;
-//        solenoid[i].strokeOffDms = 1;
-//        solenoid[i].strokeLength = -1;
-    }
+    initSolenoids();
     
 //    solenoid[0].holdLength = 0;
 //    solenoid[0].strokeLength = 100;
@@ -464,7 +505,10 @@ void init() {
 //    solenoid[1].holdOffDms = 0;
 //    solenoid[1].holdOnDms = 2;
 //    solenoid[1].triggerSw = 0b1;
-    
+#ifdef ENABLE_GVD
+    initIn(gvd);
+    CNPDBbits.CNPDB9 = 1; // pulldown on B9
+#endif
     
 #ifndef DISABLE_UART
     initOut(tx, 1);
@@ -475,7 +519,7 @@ void init() {
     UARTConfigure(UART1, UART_ENABLE_PINS_TX_RX_ONLY); 
     UARTSetFifoMode(UART1, UART_INTERRUPT_ON_TX_NOT_FULL | UART_INTERRUPT_ON_RX_NOT_EMPTY); 
     UARTSetLineControl(UART1, UART_DATA_SIZE_8_BITS | UART_PARITY_NONE | UART_STOP_BITS_2); 
-    UARTSetDataRate(UART1, SYS_FREQ, 115200); 
+    UARTSetDataRate(UART1, SYS_FREQ, 115200/2); 
 
     UARTEnable(UART1, UART_ENABLE_FLAGS(UART_PERIPHERAL | UART_RX | UART_TX));
     U1TXREG = 'h';
@@ -506,6 +550,7 @@ void init() {
 //    }
 #endif
 #ifndef DISABLE_IO
+#ifndef DISABLE_IRQ
     initIn(inInt);
     CNPUBbits.CNPUB9 = 1; // pullup on B9
     INTCONbits.INT1EP = 0; // interrupt on falling edge
@@ -513,7 +558,8 @@ void init() {
     INTSetVectorPriority(INT_SOURCE_EX_INT(1), INT_PRIORITY_LEVEL_4);
     INTSetVectorSubPriority(INT_SOURCE_EX_INT(1), INT_SUB_PRIORITY_LEVEL_1);
     INTClearFlag(INT_SOURCE_EX_INT(1));
-//    INTEnable(INT_SOURCE_EX_INT(1), INT_ENABLED);
+    INTEnable(INT_SOURCE_EX_INT(1), INT_ENABLED);
+#endif
     
 //    initOut(sdo, 1);
 //    initOut(sck, 1);
@@ -533,6 +579,7 @@ void init() {
 //    for(int i=0;i<10000;i++);
     
     while(inRead(A, IODIRA)!= 0xFF || inRead(A, IPOLA)!=0);
+    while(inRead(B, IODIRA)!= 0xFF || inRead(B, IPOLA)!=0);
     
     
     inWrite(A, IOCON, 0b01001100); // INTs tied, INT active low, seq read, addr enabled
@@ -547,7 +594,11 @@ void init() {
 //    inWrite4(OLATA, 0b01110000);
     inWrite2xBoth(GPPUA, 0b11111111); // 1 = pull up enabled
     inWrite2xBoth(IPOLA, 0x00); // 0 = non-inverted
+#ifdef DISABLE_IRQ
     inWrite2xBoth(GPINTENA, 0x00); // 1 = enable interrupt
+#else
+    inWrite2xBoth(GPINTENA, 0xFF); // 1 = enable interrupt
+#endif
     inWrite2xBoth(INTCONA, 0x00); // 0 = interrupt on any change
     
 //    u8 ctrl = inRead(A, IOCON);
@@ -611,6 +662,25 @@ void loop() {
     }
     U1ASTAbits.OERR = 0;
     
+#ifdef ENABLE_GVD
+    if (!getIn(gvd)) {
+        if (enableSolenoids) {
+            enableSolenoids = 0;
+            for (int i=0; i<SOL_NUM; i++) {
+                if (i==7) continue;
+                Solenoid* s = &solenoid[i];
+                setOut(s->pin, 0);
+            }
+            send("#lost gv", 0);
+            ledSpeed = 100;
+        }
+    }
+    else if (!enableSolenoids) {
+        enableSolenoids = 1;
+        ledSpeed = 700;
+    }
+#endif
+    
 //    if (!getIn(inInt)) {
         checkInputs(GPIOA);
 //    }
@@ -661,7 +731,8 @@ void loop() {
     u32 ms = msElapsed;
     u32 dms = dmsElapsed;
     
-    for (int i=0; i<SOL_NUM-4; i++) {
+    for (int i=0; i<SOL_NUM; i++) {
+        if (i==7) continue;
         Solenoid* s = &solenoid[i];
         if (!s->onSince) continue;
         if (ms - s->onSince < s->strokeLength || s->strokeLength==-1) {
@@ -670,19 +741,20 @@ void loop() {
             }
             else {
                 // already on, ignore it
-                setOut(s->pin, 1);
+                setOut(s->pin, enableSolenoids);
             }
         }
         else if (ms - s->onSince < s->strokeLength + s->holdLength || s->holdLength==-1) {
             if (s->triggerSw && !(s->triggerSw & inState)) {
                 setOut(s->pin, 0);
                 s->onSince = 0;
+                send("#unhold");
             }
             else if (s->holdOffDms) {
                 setOut(s->pin, dms % (s->holdOffDms + s->holdOnDms) < s->holdOnDms);
             }
             else {
-                setOut(s->pin, 1);
+                setOut(s->pin, enableSolenoids);
             }
         }
         else {
@@ -690,73 +762,6 @@ void loop() {
             s->onSince = 0;
         }
     }
-//        switch(s->mode) {
-//            case Disabled:
-//            case Momentary:
-//                break;
-//            case Input: {
-//                uint8_t input = getIn(s->pin);
-//                if (input) {
-//                }
-//                else {
-//
-//                }
-//                break;
-//            }
-//            case OnOff:
-//                if (s->onSince) {
-//                    if (s->maxOnTime && msElapsed-s->onSince > s->maxOnTime) {
-//                        if (s->pulseOffTime) { // pwm
-//                            if (dmsElapsed % (s->pulseOffTime + s->pulseOnTime) < s->pulseOnTime)
-//                               setOut(s->pin, s->on);
-//                            else
-//                                setOut(s->pin, !s->on);    
-//                        }
-//                        else {
-//                            turnOffSolenoid(s);
-//                        }
-//                    }
-//                }
-//                break;
-//#if 0
-//            case Triggered: {
-//                if (s->triggeredBy >= 16)
-//                    break;
-//                Solenoid* trigger = &solenoid[s->triggeredBy];
-//                uint8_t input = getIn(trigger->pin) ^ trigger->inverted;
-//                if (!input) {
-//                    if (msElapsed > s->lastOnAt + trigger->settleTime) {
-//                        s->disabled = 0;
-//                    }
-//                    turnOffSolenoid(s);
-//                }
-//                else {
-//                    if (s->onSince) { // already on
-//                        if (s->maxOnTime && msElapsed - s->onSince > s->maxOnTime) {
-//                            if (s->pulseOffTime) { // pwm
-//                                uint32_t t = msElapsed - s->onSince - s->maxOnTime;
-//                                if (dmsElapsed % (s->pulseOffTime + 1) == 0)
-//                                   setOut(s->pin, s->on);
-//                                else
-//                                    setOut(s->pin, !s->on);    
-//                            }
-//                            else {
-//                                turnOffSolenoid(s);
-//                                s->disabled = 1;
-//                            }
-//                        }
-//                    }
-//                    else if (!s->disabled && msElapsed > s->lastOnAt + trigger->settleTime) {
-//                        turnOnSolenoid(s);
-//                    }
-//                    s->lastOnAt = msElapsed;
-//                }
-//                break;
-//            }
-//#endif
-//        }
-//    }
-
 }
 
 void crashed() {
