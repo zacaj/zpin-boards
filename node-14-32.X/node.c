@@ -301,11 +301,11 @@ void gotMessage(u8* data) {
         }
         case 'F': // FS#
             solenoid[num].onSince = msElapsed;
-            setOut(solenoid[i].pin, enableSolenoids);
+//            setOut(solenoid[i].pin, enableSolenoids);
             break;
         case 'O': // OS#
             solenoid[num].onSince = 0;
-            setOut(solenoid[num].pin, 0);
+//            setOut(solenoid[num].pin, 0);
             break;
         case 'T': // TS#{trigger x4, repulse x4, minoffdms}
             solenoid[num].triggerSw = (data[4]<<24)|(data[5]<<16)|(data[6]<<8)|(data[7]);
@@ -408,6 +408,59 @@ void inWrite2xBoth(InAddr address, u8 value) {
 
 u32 inState = 0;
 
+void updateSolenoid(Solenoid* s, int num) {
+    if (num==7) return;
+    u32 ms = msElapsed;
+    u32 dms = dmsElapsed;
+    char message[MESSAGE_LEN];
+    
+    if (!s->onSince) {
+        if (s->triggerSw & inState) {
+            if (ms - s->lastOpened >= s->minOffMs) {
+                s->onSince = msElapsed;
+                setOut(s->pin, enableSolenoids);
+                sprintf(message, "#TRIGGER %i", num);
+                send(message, 0);
+            }
+        }
+    }
+    
+    if (!s->onSince) return;
+    
+    if (ms - s->onSince < s->strokeLength || s->strokeLength==-1) {
+        if (s->strokeOffDms) {
+            setOut(s->pin, dms % (s->strokeOffDms + s->strokeOnDms) < s->strokeOnDms);
+        }
+        else {
+            // already on, ignore it
+            setOut(s->pin, enableSolenoids);
+        }
+    }
+    else if (ms - s->onSince < s->strokeLength + s->holdLength || s->holdLength==-1) {
+        if (s->triggerSw && !(s->triggerSw & inState)) {
+            s->onSince = 0;
+            sprintf(message, "#UNtrigger %i", num);
+            send(message, 0);
+        }
+        else if (s->holdOffDms) {
+            setOut(s->pin, dms % (s->holdOffDms + s->holdOnDms) < s->holdOnDms);
+        }
+        else {
+            setOut(s->pin, enableSolenoids);
+        }
+    }
+    else {
+        setOut(s->pin, 0);
+        if (s->triggerSw && !(s->triggerSw & inState)) {
+            s->onSince = 0;
+        }
+    }
+    
+    if (!s->onSince) {
+        setOut(s->pin, 0);
+    }
+}
+
 void checkInputs(InAddr source) {
     source = GPIOA;
     u32 state;
@@ -435,23 +488,12 @@ void checkInputs(InAddr source) {
     if (a != 0xFFFF && b != 0xFFFF) {
         for (int i=0; i<SOL_NUM; i++) {
             if (i==7) continue;
-            if (solenoid[i].triggerSw & on) {
-                if (!solenoid[i].onSince && msElapsed - solenoid[i].lastOpened >= solenoid[i].minOffMs) {
-                    solenoid[i].onSince = msElapsed;
-                    setOut(solenoid[i].pin, enableSolenoids);
-                    triggered = i;
-                }
+            if (solenoid[i].triggerSw & changed) {
+                updateSolenoid(solenoid+i, i);
             }
 
             if (solenoid[i].triggerSw & off) {
                 solenoid[i].lastOpened = msElapsed;
-                if (msElapsed - solenoid[i].onSince > solenoid[i].strokeLength
-                    && msElapsed - solenoid[i].onSince >= solenoid[i].minOnDms
-                ) {
-                    solenoid[i].onSince = 0;
-                    setOut(solenoid[i].pin, 0);
-                    untriggered = i;
-                }
             }
         }
 
@@ -727,40 +769,11 @@ void loop() {
 
     }
 #endif
-
-    u32 ms = msElapsed;
-    u32 dms = dmsElapsed;
     
     for (int i=0; i<SOL_NUM; i++) {
         if (i==7) continue;
         Solenoid* s = &solenoid[i];
-        if (!s->onSince) continue;
-        if (ms - s->onSince < s->strokeLength || s->strokeLength==-1) {
-            if (s->strokeOffDms) {
-                setOut(s->pin, dms % (s->strokeOffDms + s->strokeOnDms) < s->strokeOnDms);
-            }
-            else {
-                // already on, ignore it
-                setOut(s->pin, enableSolenoids);
-            }
-        }
-        else if (ms - s->onSince < s->strokeLength + s->holdLength || s->holdLength==-1) {
-            if (s->triggerSw && !(s->triggerSw & inState)) {
-                setOut(s->pin, 0);
-                s->onSince = 0;
-                send("#unhold");
-            }
-            else if (s->holdOffDms) {
-                setOut(s->pin, dms % (s->holdOffDms + s->holdOnDms) < s->holdOnDms);
-            }
-            else {
-                setOut(s->pin, enableSolenoids);
-            }
-        }
-        else {
-            setOut(s->pin, 0);
-            s->onSince = 0;
-        }
+        updateSolenoid(s, i);
     }
 }
 
