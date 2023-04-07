@@ -15,6 +15,7 @@ Pin inInt = { IOPORT_B, p9 };
 #ifdef ENABLE_GVD
 Pin gvd = { IOPORT_B, p9 };
 #endif
+Pin debug = {IOPORT_B, p6};
 
 u8 enableSolenoids = 1;
 
@@ -63,57 +64,78 @@ int main(void)
 }
 
 #ifndef DISABLE_UART
-#define QUEUE_LEN 5
+#define QUEUE_LEN 50
 #define MESSAGE_LEN 32
 char sendMessage[QUEUE_LEN][MESSAGE_LEN+1];
-char* sendAt = NULL;
+u8 byffer[10];
 u8 queueStart = 0, queueEnd = 0;
+u8 sendI = 0;
 char recvMessage[MESSAGE_LEN+1];
 char* recvAt = NULL;
 u8 recvLen = 0;
 u32 recvStartTime = 0;
 #define MESSAGE_START 254
 #define MESSAGE_END 253
+u8 sending = 0;
+u8 queueRolls = 0, activeSends = 0;
 
 void sendByte() {
-    if (sendAt) {
-        u8 byte = *sendAt;
+    if (!sending) {
+        sending = 1;
+//    sendAt = 0;
+//    char *nextAt = sendAt;
+    if (queueStart != queueEnd) {
+        u8 byte = sendMessage[queueStart][sendI];
         INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
-        UARTSendDataByte(UART1, byte);
         if (byte == '\0' || byte == MESSAGE_END)
-            sendAt = NULL;
+            sendI = MESSAGE_LEN;
         else {
-            sendAt++;
-            if (sendAt >= sendMessage[queueStart]+MESSAGE_LEN)
-                sendAt = NULL;
+            sendI++;
         }
-        
-        if (!sendAt && queueStart != queueEnd) {
+         
+        if (sendI >= MESSAGE_LEN) {
+            activeSends--;
             sendMessage[queueStart][0] = 'X';
+            sendI = 0;
             queueStart++;
             if (queueStart >= QUEUE_LEN)
                 queueStart = 0;
-            if (queueStart != queueEnd)
-                sendAt = sendMessage[queueStart];
+//            if (queueStart != queueEnd) 
+//                nextAt = &(sendMessage[queueStart][0]);
         }
+        UARTSendDataByte(UART1, byte);
     }
-    if (!sendAt) {
+//    if (!nextAt) {
+    else {
 //        INTClearFlag(INT_SOURCE_UART_TX(UART1));
         INTEnable(INT_SOURCE_UART_TX(UART1), INT_DISABLED);
+//        setOut(debug, 0);
+    }
+        sending = 0;
     }
     INTClearFlag(INT_SOURCE_UART_TX(UART1));
+//    sendAt = nextAt;
 }
+
+u8 queueOverruns = 0;
 
 void send(u8* m, u8 len) {
     ledInvert = !ledInvert;
     u8 checksum = 0;
     u8 i=0;
     u8 queueAt = queueEnd++;
-    if (queueEnd >= QUEUE_LEN)
+    activeSends++;
+    if (sendMessage[queueAt][0] != 'X') {
+        queueOverruns++;
+        return;
+    }
+    if (queueEnd >= QUEUE_LEN) {
         queueEnd = 0;
+        queueRolls++;
+    }
     sendMessage[queueAt][0] = MESSAGE_START;
     for (;i<MESSAGE_LEN-3;i++) {
-        if ((len && i==len) || (!len && !m[i])) {
+        if ((!len && !m[i]) || (len && i==len)) {
             break;
         }
         checksum += m[i];
@@ -123,12 +145,21 @@ void send(u8* m, u8 len) {
     sendMessage[queueAt][i+1] = checksum;
     sendMessage[queueAt][i+2] = MESSAGE_END;
     sendMessage[queueAt][i+3] = 0;
-    if (!sendAt) {
-        sendAt = sendMessage[queueAt];
-//        INTClearFlag(INT_SOURCE_UART_TX(UART1));
+    if (!INTGetEnable(INT_SOURCE_UART_TX(UART1))) {
         INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
-        while(!UARTTransmissionHasCompleted(UART1));
-        sendByte();
+        UARTSendDataByte(UART1, 'E');
+//    if (queueStart == queueAt) {
+//        sendI = 0;
+//    if (!sendAt && !INTGetFlag(INT_SOURCE_UART_TX(UART1))) {
+//        sendAt = &(sendMessage[queueAt][0]);
+//        INTClearFlag(INT_SOURCE_UART_TX(UART1));
+//        INTEnable(INT_SOURCE_UART_TX(UART1), INT_ENABLED);
+//        while(!UARTTransmissionHasCompleted(UART1))
+        
+//        while(U1STAbits.UTXBF)
+//            len = 0;
+//        setOut(debug, 0);
+//        sendByte();
     }
 }
 
@@ -188,10 +219,12 @@ typedef struct {
     u32 repulseSw;
     u32 lastOpened; // ms
     u8 minOffMs; // min time the switch must be open before triggering again
-    u8 minOnDms; // min time the coil must be energized before it can untrigger
+    u8 totalOnTime;
+    u8 maxOnTime;
+    u32 lastUpdate;
 } Solenoid;
 //
-#define SOL_DEFAULT(port, pin) { { port, pin }, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0 }
+#define SOL_DEFAULT(port, pin) { { port, pin }, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0 }
 //
 #define SOL_NUM 14
 Solenoid solenoid[SOL_NUM] = {
@@ -223,10 +256,11 @@ void initSolenoids() {
         solenoid[i].holdOnDms = 0;
         solenoid[i].lastOpened = 0;
         solenoid[i].minOffMs = 1;
-        solenoid[i].minOnDms = 0;
         solenoid[i].onSince = 0;
         solenoid[i].repulseSw = 0;
         solenoid[i].triggerSw = 0;
+        solenoid[i].totalOnTime = 0;
+        solenoid[i].maxOnTime = 0;
 // stress test        
 //        solenoid[i].onSince=1;
 //        solenoid[i].strokeOnDms = 1;
@@ -278,8 +312,10 @@ void gotMessage(u8* data) {
             solenoid[num].strokeLength = 0;
             solenoid[num].triggerSw = 0;
             solenoid[num].repulseSw = 0;
+            solenoid[num].totalOnTime = 0;
+            solenoid[num].maxOnTime = 0;
             break;
-        case 'C': {//CS#{sl,sl,son,soff,hl,hl,hon,hoff}
+        case 'C': {//CS#{sl,sl,son,soff,hl,hl,hon,hoff, maxOn}
             u16 length = (data[4]<<8)|data[5];
             if (length == -1)
                 solenoid[num].strokeLength = -1;
@@ -297,6 +333,8 @@ void gotMessage(u8* data) {
             solenoid[num].triggerSw = 0;
             solenoid[num].repulseSw = 0;
             solenoid[num].minOffMs = 0;
+            solenoid[num].totalOnTime = 0;
+            solenoid[num].maxOnTime = data[12];
             break;
         }
         case 'F': // FS#
@@ -408,60 +446,95 @@ void inWrite2xBoth(InAddr address, u8 value) {
 
 u32 inState = 0;
 
-void updateSolenoid(Solenoid* s, int num) {
-    if (num==7) return;
-    u32 ms = msElapsed;
+u8 updateSolenoid(Solenoid* s, int num) {
+    if (num==7) return 0;
     u32 dms = dmsElapsed;
-    char message[MESSAGE_LEN];
+    u32 ms = dms/10;
+    u32 delta = ms - s->lastUpdate;
+    s->lastUpdate = ms;
+//    u8 lastVal = getIn(s->pin);
+//    char message[MESSAGE_LEN];
+    
+    u8 active = 0;
+    u8 pwm = 1;
+    u8 triggered = 0;
+    u8 limited = 0;
     
     if (!s->onSince) {
         if (s->triggerSw & inState) {
             if (ms - s->lastOpened >= s->minOffMs) {
-                s->onSince = msElapsed;
                 setOut(s->pin, enableSolenoids);
-                sprintf(message, "#TRIGGER %i", num);
-                send(message, 0);
+                active |= 1;
+                triggered = 1;
+                s->onSince = ms;
+            }
+        }
+    }
+    else {
+        if (ms - s->onSince < s->strokeLength || s->strokeLength==-1) {
+            // stroke active
+            active |= 1;
+            if (s->strokeOffDms) {
+                pwm &= dms % (s->strokeOffDms + s->strokeOnDms) < s->strokeOnDms;
+            }
+        }
+        else {
+            if (ms - s->onSince < s->strokeLength + s->holdLength || s->holdLength==-1) {
+                // hold active
+                active |= 1;
+                if (s->holdOffDms) {
+                    pwm &= dms % (s->holdOffDms + s->holdOnDms) < s->holdOnDms;
+                }
+            }
+            else {
+                // coil timed out
+                active &= 0;
+            }
+            
+            if (s->triggerSw && !(s->triggerSw & inState)) {
+                // trigger dropped, kill coil
+                active &= 0;
+                triggered = 1;
+                s->onSince = 0;
+                setOut(s->pin, 0);
             }
         }
     }
     
-    if (!s->onSince) return;
-    
-    if (ms - s->onSince < s->strokeLength || s->strokeLength==-1) {
-        if (s->strokeOffDms) {
-            setOut(s->pin, dms % (s->strokeOffDms + s->strokeOnDms) < s->strokeOnDms);
+    if (s->maxOnTime) {
+        // update totalOnTime
+        if (active) {
+            while (s->totalOnTime<s->maxOnTime && delta) {
+                s->totalOnTime++;
+                delta--;
+            }
         }
         else {
-            // already on, ignore it
-            setOut(s->pin, enableSolenoids);
+            while (s->totalOnTime && delta) {
+                s->totalOnTime--;
+                delta--;
+            }
         }
-    }
-    else if (ms - s->onSince < s->strokeLength + s->holdLength || s->holdLength==-1) {
-        if (s->triggerSw && !(s->triggerSw & inState)) {
-            s->onSince = 0;
-            sprintf(message, "#UNtrigger %i", num);
-            send(message, 0);
-        }
-        else if (s->holdOffDms) {
-            setOut(s->pin, dms % (s->holdOffDms + s->holdOnDms) < s->holdOnDms);
-        }
-        else {
-            setOut(s->pin, enableSolenoids);
-        }
-    }
-    else {
-        setOut(s->pin, 0);
-        if (s->triggerSw && !(s->triggerSw & inState)) {
-            s->onSince = 0;
-        }
-    }
     
-    if (!s->onSince) {
-        setOut(s->pin, 0);
+        if (s->totalOnTime >= s->maxOnTime) {
+            // kill coil but keep it active
+            limited = 1;
+        }
     }
+
+    u8 val = active && enableSolenoids && !limited;
+//    if (val != lastVal && pwm == val) {
+//        sprintf(message, "##%i=%i @ %i %i %s %s", num, val, ms % 10000, s->totalOnTime, triggered? "T" : "", limited? "L" : "");
+//        send(message, 0);
+//    }
+    setOut(s->pin, val && pwm);
+    
+    return triggered;
 }
+    
 
 void checkInputs(InAddr source) {
+//        setOut(debug, 1);
     source = GPIOA;
     u32 state;
     u16 a, b;
@@ -472,10 +545,10 @@ void checkInputs(InAddr source) {
         a = inRead2x(A, source) ^ 0xFFFF;
         b = inRead2x(B, source) ^ 0xFFFF;
         state = (a | (b<<16));
-        if (state == inState) return;
+        if (state == inState) return;//break;//
         if (state == last) break;
         last = state;
-        if (--i==0) return;
+        if (--i==0) return;//break;//
     }    
     
     u32 changed = inState ^ state;
@@ -489,7 +562,12 @@ void checkInputs(InAddr source) {
         for (int i=0; i<SOL_NUM; i++) {
             if (i==7) continue;
             if (solenoid[i].triggerSw & changed) {
-                updateSolenoid(solenoid+i, i);
+                if (updateSolenoid(solenoid+i, i)) {
+                    if (solenoid[i].triggerSw & on)
+                        triggered = i;
+                    else
+                        untriggered = i;
+                }
             }
 
             if (solenoid[i].triggerSw & off) {
@@ -517,8 +595,9 @@ void checkInputs(InAddr source) {
     
     send(msg, 0);
     
-    if (source == INTCAPA)
-        checkInputs(GPIOA);
+//    if (source == INTCAPA)
+//        checkInputs(GPIOA);
+//        setOut(debug, 0);
 }
 
 #ifndef DISABLE_IRQ
@@ -534,6 +613,9 @@ void __attribute__((vector(_EXTERNAL_1_VECTOR), interrupt(IPL4SOFT), nomips16, n
 #endif
 
 void init() {
+    int i;
+    for (i=0;i<QUEUE_LEN;i++)
+        sendMessage[i][0] = 'X';
     initSolenoids();
     
 //    solenoid[0].holdLength = 0;
@@ -698,11 +780,16 @@ uint8_t state=0;
 uint32_t I = 0;
 void loop() {
     I++;
-//    setOut(solenoid[SOL_NUM-3].pin, I&1);
+//    setOut(solenoid[SOL_NUM-1].pin, I&1);
     if (U1ASTAbits.URXDA) {
         UARTGetDataByte(UART1);
     }
     U1ASTAbits.OERR = 0;
+    
+    while (queueOverruns) {
+        queueOverruns--;
+        send("#QUEUE OVERRUN", 0);
+    }
     
 #ifdef ENABLE_GVD
     if (!getIn(gvd)) {
@@ -724,6 +811,8 @@ void loop() {
 #endif
     
 //    if (!getIn(inInt)) {
+//    if (I%100==0)
+//        send("#1234567890abcdef", 0);
         checkInputs(GPIOA);
 //    }
     
